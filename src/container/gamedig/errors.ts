@@ -1,20 +1,22 @@
-import { Data } from "effect";
+import { Schema } from "effect";
 
-interface GameDigErrorFields {
-  readonly elapsedMs: number;
-  readonly host: string;
-  readonly message: string;
-  readonly port: number;
-  readonly type: string;
-}
+const gameDigErrorFields = {
+  elapsedMs: Schema.Number,
+  host: Schema.String,
+  message: Schema.String,
+  port: Schema.Number,
+  type: Schema.String,
+};
 
-export class GameDigQueryError extends Data.TaggedError(
-  "GameDigQueryError"
-)<GameDigErrorFields> {}
+export class GameDigQueryError extends Schema.TaggedError<GameDigQueryError>()(
+  "GameDigQueryError",
+  gameDigErrorFields
+) {}
 
-export class GameDigResponseError extends Data.TaggedError(
-  "GameDigResponseError"
-)<GameDigErrorFields> {}
+export class GameDigResponseError extends Schema.TaggedError<GameDigResponseError>()(
+  "GameDigResponseError",
+  gameDigErrorFields
+) {}
 
 export type GameDigError = GameDigQueryError | GameDigResponseError;
 
