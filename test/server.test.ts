@@ -33,14 +33,18 @@ const postQuery = async (
   contentType: string | undefined = "application/json"
 ) => {
   const { calls, handler } = makeFakeHandler();
-  const headers = contentType === undefined ? undefined : { "content-type": contentType };
-  const response = await handler(
-    new Request("https://container.local/query", {
-      body,
-      headers,
-      method: "POST",
-    })
-  );
+  const request =
+    contentType === undefined
+      ? new Request("https://container.local/query", {
+          body,
+          method: "POST",
+        })
+      : new Request("https://container.local/query", {
+          body,
+          headers: { "content-type": contentType },
+          method: "POST",
+        });
+  const response = await handler(request);
   const responseBody: unknown = await response.json();
 
   return { body: responseBody, calls, response };
