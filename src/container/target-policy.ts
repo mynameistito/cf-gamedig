@@ -60,7 +60,7 @@ for (const [network, prefix] of [
 }
 
 const NON_CANONICAL_IPV4_LITERAL =
-  /^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}\.?$/i;
+  /^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}\.?$/iu;
 
 const invalidTarget = (field: "address" | "host") =>
   new InvalidTargetError({
