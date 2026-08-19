@@ -13,7 +13,9 @@ const parse = (search: string) =>
 const parseOk = (search: string): QueryParams => {
   const result = parse(search);
   if (Result.isFailure(result)) {
-    throw new Error(`Expected parse to succeed, got: ${result.failure.message}`);
+    throw new Error(
+      `Expected parse to succeed, got: ${result.failure.message}`
+    );
   }
   return result.success;
 };
