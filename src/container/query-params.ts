@@ -6,7 +6,7 @@ export const MAX_ATTEMPT_TIMEOUT_MS = 60_000;
 
 const DEFAULT_ATTEMPT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RETRIES = 1;
-const DEFAULT_SOCKET_TIMEOUT_MS = 2_000;
+const DEFAULT_SOCKET_TIMEOUT_MS = 2000;
 const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
 const RETRY_ERROR = `Invalid maxRetries: expected an integer between 0 and ${MAX_RETRIES}`;
 const SOCKET_TIMEOUT_ERROR = `Invalid socketTimeout: expected an integer between 1 and ${MAX_SOCKET_TIMEOUT_MS}`;
@@ -36,12 +36,32 @@ const BooleanFromStringSchema = Schema.Literals(["false", "true"]).pipe(
   )
 );
 
+const decodeIpFamily = (value: "0" | "4" | "6") => {
+  if (value === "0") {
+    return 0;
+  }
+  if (value === "4") {
+    return 4;
+  }
+  return 6;
+};
+
+const encodeIpFamily = (value: 0 | 4 | 6) => {
+  if (value === 0) {
+    return "0";
+  }
+  if (value === 4) {
+    return "4";
+  }
+  return "6";
+};
+
 const IpFamilySchema = Schema.Literals(["0", "4", "6"]).pipe(
   Schema.decodeTo(
     Schema.Literals([0, 4, 6]),
     SchemaTransformation.transform({
-      decode: (value) => (value === "0" ? 0 : value === "4" ? 4 : 6),
-      encode: (value) => (value === 0 ? "0" : value === 4 ? "4" : "6"),
+      decode: decodeIpFamily,
+      encode: encodeIpFamily,
     })
   )
 );
@@ -95,43 +115,62 @@ export type QueryParams = typeof QueryParamsSchema.Type;
 
 const invalidQuery = (message: string) => new InvalidQueryError({ message });
 
+const queryParamOr = (
+  searchParams: URLSearchParams,
+  name: string,
+  fallback: string
+): string => searchParams.get(name)?.trim() ?? fallback;
+
 export const parseQueryParams = (
   searchParams: URLSearchParams
 ): Result.Result<QueryParams, InvalidQueryError> => {
-  const input: Record<string, string> = {
-    attemptTimeout:
-      searchParams.get("attemptTimeout")?.trim() ??
-      String(DEFAULT_ATTEMPT_TIMEOUT_MS),
-    checkOldIDs: searchParams.get("checkOldIDs")?.trim() ?? "false",
-    debug: searchParams.get("debug")?.trim() ?? "false",
-    givenPortOnly: searchParams.get("givenPortOnly")?.trim() ?? "false",
-    host: searchParams.get("host")?.trim() ?? "",
-    ipFamily: searchParams.get("ipFamily")?.trim() ?? "0",
-    maxRetries:
-      searchParams.get("maxRetries")?.trim() ?? String(DEFAULT_MAX_RETRIES),
-    noBreadthOrder: searchParams.get("noBreadthOrder")?.trim() ?? "false",
-    requestPlayers: searchParams.get("requestPlayers")?.trim() ?? "true",
-    requestPlayersRequired:
-      searchParams.get("requestPlayersRequired")?.trim() ?? "false",
-    requestRules: searchParams.get("requestRules")?.trim() ?? "false",
-    requestRulesRequired:
-      searchParams.get("requestRulesRequired")?.trim() ?? "false",
-    socketTimeout:
-      searchParams.get("socketTimeout")?.trim() ??
-      String(DEFAULT_SOCKET_TIMEOUT_MS),
-    stripColors: searchParams.get("stripColors")?.trim() ?? "true",
-    type: searchParams.get("type")?.trim() ?? "",
+  const inputWithoutOptionals = {
+    attemptTimeout: queryParamOr(
+      searchParams,
+      "attemptTimeout",
+      String(DEFAULT_ATTEMPT_TIMEOUT_MS)
+    ),
+    checkOldIDs: queryParamOr(searchParams, "checkOldIDs", "false"),
+    debug: queryParamOr(searchParams, "debug", "false"),
+    givenPortOnly: queryParamOr(searchParams, "givenPortOnly", "false"),
+    host: queryParamOr(searchParams, "host", ""),
+    ipFamily: queryParamOr(searchParams, "ipFamily", "0"),
+    maxRetries: queryParamOr(
+      searchParams,
+      "maxRetries",
+      String(DEFAULT_MAX_RETRIES)
+    ),
+    noBreadthOrder: queryParamOr(searchParams, "noBreadthOrder", "false"),
+    requestPlayers: queryParamOr(searchParams, "requestPlayers", "true"),
+    requestPlayersRequired: queryParamOr(
+      searchParams,
+      "requestPlayersRequired",
+      "false"
+    ),
+    requestRules: queryParamOr(searchParams, "requestRules", "false"),
+    requestRulesRequired: queryParamOr(
+      searchParams,
+      "requestRulesRequired",
+      "false"
+    ),
+    socketTimeout: queryParamOr(
+      searchParams,
+      "socketTimeout",
+      String(DEFAULT_SOCKET_TIMEOUT_MS)
+    ),
+    stripColors: queryParamOr(searchParams, "stripColors", "true"),
+    type: queryParamOr(searchParams, "type", ""),
   };
-
   const address = searchParams.get("address");
-  if (address !== null) {
-    input.address = address.trim();
-  }
-
+  const inputWithAddress =
+    address === null
+      ? inputWithoutOptionals
+      : { ...inputWithoutOptionals, address: address.trim() };
   const port = searchParams.get("port");
-  if (port !== null) {
-    input.port = port.trim();
-  }
+  const input =
+    port === null
+      ? inputWithAddress
+      : { ...inputWithAddress, port: port.trim() };
 
   const decoded = Result.mapError(
     Schema.decodeUnknownResult(QueryParamsSchema)(input),
