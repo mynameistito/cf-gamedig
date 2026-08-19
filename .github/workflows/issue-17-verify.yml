@@ -1,6 +1,9 @@
 name: Issue 17 Verification
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - agent/restore-gamedig-query-port-resolution
