@@ -2,7 +2,7 @@
 
 Run [GameDig](https://github.com/gamedig/node-gamedig) behind a Cloudflare Worker and Cloudflare Container.
 
-`cf-gamedig-container` exposes a small HTTP API for querying remote game servers with GameDig. The Worker is the public edge entrypoint; it forwards supported requests to a Cloudflare Container, where Bun and GameDig can use the network protocols required by game-server query implementations.
+`cf-gamedig-container` exposes a small HTTP API for querying remote game servers with GameDig. The Worker is the public edge entrypoint; it authenticates and rate-limits query traffic before forwarding accepted requests to a Cloudflare Container, where Bun and GameDig can use the network protocols required by game-server query implementations.
 
 ## Overview
 
@@ -13,6 +13,8 @@ The service currently provides:
 - `GET /health` for liveness checks;
 - `GET /query` for ordinary non-secret GameDig queries;
 - `POST /query` for JSON queries, including credential-bearing protocol options;
+- optional Worker Bearer-token authentication, with deliberately open mode as the default;
+- Worker-side `/query` rate limiting before the Container is contacted;
 - runtime validation against the installed GameDig game and protocol registries;
 - GameDig-style port resolution when `port` is omitted;
 - a typed, normalized response envelope with protocol-specific data preserved under `raw`;
@@ -25,20 +27,22 @@ The application itself can run entirely on Cloudflare. The game server being que
 ```mermaid
 flowchart LR
     Client["API client"]
-    Worker["Cloudflare Worker<br/>public HTTP router"]
+    Worker["Cloudflare Worker<br/>routes + auth + rate limit"]
     Binding["Container binding<br/>getContainer(...)"]
     Container["Cloudflare Container<br/>Bun HTTP server"]
     GameDig["GameDig 5.3.3"]
     GameServer["Remote game server"]
 
     Client -->|HTTPS| Worker
-    Worker --> Binding
+    Worker -->|accepted requests only| Binding
     Binding -->|internal HTTP| Container
     Container --> GameDig
     GameDig -->|UDP / TCP / HTTP / DNS as required| GameServer
 ```
 
-The Worker only accepts the public routes documented below and forwards matching requests through the `CONTAINER` binding. The `GameDigContainer` listens on port `8080`, has outbound internet access enabled, and is addressed by the stable container key `cf-gamedig`.
+The Worker only accepts the public routes documented below. `/query` requests are authenticated when Worker authentication is enabled and are always checked against the configured Cloudflare Rate Limiting binding before `getContainer(...)` is called. The `Authorization` header is stripped before any accepted request is forwarded. `/health` stays unauthenticated and is not rate-limited.
+
+The `GameDigContainer` listens on port `8080`, has outbound internet access enabled, and is addressed by the stable container key `cf-gamedig`.
 
 Alchemy provisions the Worker and Container from `alchemy.run.ts`. The current stack uses a `lite` Container, starts with zero instances, allows at most one Cloudflare instance, enables observability, and lets the Container sleep after one minute of inactivity.
 
@@ -53,7 +57,9 @@ Alchemy provisions the Worker and Container from `alchemy.run.ts`. The current s
 | Query ports | `port` is optional; GameDig can apply game defaults, `port_query`, and `port_query_offset` |
 | Generic options | Typed, allow-listed GET and POST support |
 | Protocol options | Typed support for the protocol-specific options listed below |
-| Credentials | Sensitive values are rejected in GET URLs and accepted through POST JSON |
+| Protocol credentials | Sensitive GameDig values are rejected in GET URLs and accepted through POST JSON |
+| Worker authentication | Optional Bearer token from a redacted deployment secret; unset means open mode |
+| Worker rate limiting | Cloudflare Rate Limiting on `/query`, `10` requests per `60` seconds per stable client identity |
 | Response | Stable GameDig result fields plus `players[].raw`, `bots[].raw`, and `server.raw` |
 | Port cache | Disabled intentionally for every request |
 | Runtime model | Cloudflare Worker in front of a Cloudflare Container |
@@ -66,13 +72,15 @@ Use the deployed Worker URL as the base URL in the examples below:
 https://<deployment>
 ```
 
+By default, `CF_GAMEDIG_AUTH_TOKEN` is unset and `/query` is deliberately open. If that deployment secret is configured, every `GET /query` and `POST /query` request must send the matching Bearer token. `/health` never requires the token.
+
 ### Routes
 
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | Return a liveness response from the Container service. |
-| `GET` | `/query` | Query a server using URL parameters. Sensitive options are not allowed. |
-| `POST` | `/query` | Query a server using a JSON body. Use this form when credentials are required. |
+| Method | Route | Purpose | Worker auth | Rate limited |
+| --- | --- | --- | --- | --- |
+| `GET` | `/health` | Return a liveness response from the Container service. | No | No |
+| `GET` | `/query` | Query a server using URL parameters. Sensitive options are not allowed. | When enabled | Yes |
+| `POST` | `/query` | Query a server using a JSON body. Use this form when credentials are required. | When enabled | Yes |
 
 Other public routes or methods are rejected by the Worker.
 
@@ -92,6 +100,35 @@ Response:
   "success": true
 }
 ```
+
+### Worker authentication
+
+Authentication is optional and disabled by default. The Worker reads `CF_GAMEDIG_AUTH_TOKEN` through Alchemy's redacted configuration support. No token is committed to this repository, and the empty default means the deployment remains deliberately open until a non-empty secret is supplied.
+
+When authentication is enabled, use the standard `Authorization` header:
+
+```text
+Authorization: Bearer <api-token>
+```
+
+Missing, malformed, or incorrect credentials return a stable `401 Unauthorized` JSON response with `Cache-Control: no-store`. The Worker never forwards `Authorization` to the Container, and the configured token is not included in errors or responses.
+
+### Worker rate limiting
+
+`/query` uses Cloudflare Workers Rate Limiting before the Container binding is accessed. The current Alchemy configuration is explicit:
+
+- binding: `QUERY_RATE_LIMIT`;
+- namespace ID: `31001`;
+- limit: `10` requests;
+- period: `60` seconds;
+- authenticated partition: SHA-256-derived token identity, never the raw token;
+- open-mode partition: `CF-Connecting-IP`, with a stable fallback when that header is unavailable.
+
+The limit is intentionally conservative because the current Container resource has `maxInstances: 1`. `/health` is exempt.
+
+Blocked requests return stable JSON `429 RateLimited` responses with `Cache-Control: no-store` before `getContainer(...)` can wake or contact the Container. Cloudflare's current Rate Limiting binding returns only whether a request succeeded, so this service does not invent a `Retry-After` value.
+
+If `/query` expects the rate-limit binding but the binding is missing or throws, the Worker fails closed with stable JSON `503 RateLimitUnavailable` rather than forwarding the request without abuse protection.
 
 ### Core query fields
 
@@ -208,11 +245,31 @@ Credentials are kept out of URLs because URLs are commonly retained in access lo
 
 ## Examples
 
-### Basic query
+### Basic query in open mode
 
 ```bash
 curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27015"
 ```
+
+### Authenticated GET query
+
+When Worker authentication is enabled:
+
+```bash
+curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27015" \
+  -H "Authorization: Bearer <api-token>"
+```
+
+### Authenticated POST query
+
+```bash
+curl -X POST "https://<deployment>/query" \
+  -H "Authorization: Bearer <api-token>" \
+  -H "content-type: application/json" \
+  --data '{"type":"palworld","host":"example.com","port":8212,"options":{"username":"admin","password":"<game-server-password>"}}'
+```
+
+The Worker Bearer token and any protocol-specific GameDig credential are separate credentials. The Worker strips `Authorization` before forwarding the request to the Container.
 
 ### Let GameDig resolve the query port
 
@@ -242,12 +299,12 @@ curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27
 curl "https://<deployment>/query?type=protocol-valve&host=103.212.227.45&port=27015"
 ```
 
-### Credential-bearing POST request
+### Credential-bearing POST request in open mode
 
 ```bash
 curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
-  --data '{"type":"palworld","host":"example.com","port":8212,"options":{"username":"admin","password":"TEST_PASSWORD"}}'
+  --data '{"type":"palworld","host":"example.com","port":8212,"options":{"username":"admin","password":"<game-server-password>"}}'
 ```
 
 ### Protocol-specific POST options
@@ -255,13 +312,13 @@ curl -X POST "https://<deployment>/query" \
 ```bash
 curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
-  --data '{"type":"sdtd","host":"example.com","options":{"telnetPort":8081,"telnetPassword":"TEST_TELNET_PASSWORD","moreData":true}}'
+  --data '{"type":"sdtd","host":"example.com","options":{"telnetPort":8081,"telnetPassword":"<telnet-password>","moreData":true}}'
 ```
 
 ```bash
 curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
-  --data '{"type":"satisfactory","host":"example.com","port":7777,"options":{"rejectUnauthorized":false,"token":"TEST_TOKEN"}}'
+  --data '{"type":"satisfactory","host":"example.com","port":7777,"options":{"rejectUnauthorized":false,"token":"<game-server-token>"}}'
 ```
 
 ### Legacy GameDig ID
@@ -362,15 +419,20 @@ Sensitive request values are never included in the successful response's `query`
 
 ## Errors
 
-Public API errors use a JSON envelope with `success: false`.
+Public API errors use a JSON envelope with `success: false`. Worker-generated errors use `Cache-Control: no-store`.
 
 | HTTP status | Error type | When it is returned |
 | --- | --- | --- |
 | `400` | `InvalidQuery` | Missing/invalid fields, invalid option values, invalid timeout relationship, unsupported game/protocol ID, or sensitive option supplied through GET. |
 | `400` | `InvalidJson` | Malformed POST JSON. |
-| `404` | `NotFound` | Unsupported public route or method rejected by the Worker. |
+| `401` | `Unauthorized` | Worker authentication is enabled and the Bearer credential is missing or invalid. |
+| `404` | `NotFound` | Unsupported public route rejected by the Worker. |
+| `405` | `MethodNotAllowed` | Unsupported method rejected by the Worker. |
 | `415` | `UnsupportedMediaType` | `POST /query` without `Content-Type: application/json`. |
+| `429` | `RateLimited` | The Worker-side `/query` rate limit rejected the request. |
 | `502` | `GameDigResponseError` | GameDig returned a result that failed the wrapper's response schema. |
+| `503` | `ContainerUnavailable` | Container forwarding failed before a downstream response was received. |
+| `503` | `RateLimitUnavailable` | The expected rate-limit binding is missing or failed. The Worker fails closed. |
 | `504` | `GameDigQueryError` | GameDig failed while trying to query the target server. |
 
 Representative GameDig failure:
@@ -536,7 +598,9 @@ WSL is a local-development fallback, not a deployment requirement.
 
 ## Testing
 
-The test suite covers query parsing, GameDig option forwarding, game/protocol ID validation, protocol-specific options, response schema compatibility, transport behaviour, credential redaction, and error handling.
+The test suite covers query parsing, GameDig option forwarding, game/protocol ID validation, protocol-specific options, response schema compatibility, transport behaviour, Worker route/auth/rate-limit behaviour, credential redaction, and error handling.
+
+The Worker tests exercise open mode, missing/invalid/valid Bearer credentials, `Authorization` stripping, `/health` exemption, allowed and blocked rate-limit decisions, fail-closed rate-limit misconfiguration, rejection before Container forwarding, and secret-free errors.
 
 Before submitting a change, run:
 
@@ -560,7 +624,7 @@ The repository's `Verify` GitHub Actions workflow runs the same verification cat
 
 Alchemy provisions both Cloudflare resources from `alchemy.run.ts`; there is no separate hand-written Wrangler configuration in this repository.
 
-### Authenticate
+### Authenticate to Cloudflare
 
 Alchemy profiles select the Cloudflare credentials/account used by a command.
 
@@ -571,6 +635,28 @@ bun alchemy login --profile <profile> --configure
 ```
 
 The default Alchemy profile is `default` when `--profile` is omitted.
+
+### Configure Worker authentication
+
+Worker API authentication is separate from Alchemy's Cloudflare login.
+
+The default deployment is open. To enable Bearer-token authentication, set a non-empty `CF_GAMEDIG_AUTH_TOKEN` in the environment running Alchemy. `alchemy.run.ts` reads it with `Config.redacted(...)`, so the resolved Worker binding is treated as secret configuration rather than committed source text.
+
+Bash / WSL:
+
+```bash
+export CF_GAMEDIG_AUTH_TOKEN="<api-token>"
+bun run deploy --profile <profile>
+```
+
+PowerShell:
+
+```powershell
+$env:CF_GAMEDIG_AUTH_TOKEN = "<api-token>"
+bun run deploy --profile <profile>
+```
+
+Leave `CF_GAMEDIG_AUTH_TOKEN` unset or empty to deploy intentionally in open mode.
 
 ### Deploy to Cloudflare
 
@@ -591,23 +677,25 @@ bun run destroy --profile <profile>
 ```mermaid
 flowchart LR
     Internet["Internet client"]
-    Worker["Cloudflare Worker"]
+    Worker["Cloudflare Worker<br/>auth + rate limit"]
     Container["Cloudflare Container<br/>GameDig + Bun"]
     Target["External game / voice server"]
 
     Internet -->|HTTPS| Worker
-    Worker -->|Container binding| Container
+    Worker -->|accepted requests only| Container
     Container -->|query protocol| Target
 ```
 
-The service-side compute is Cloudflare-hosted:
+The service-side compute and abuse-protection boundary are Cloudflare-hosted:
 
 | Resource | Current configuration |
 | --- | --- |
 | Worker | `cf-gamedig-worker`, `nodejs_compat`, observability enabled |
+| Worker auth | `WORKER_AUTH_TOKEN` secret binding sourced from optional `CF_GAMEDIG_AUTH_TOKEN` |
+| Worker rate limit | `QUERY_RATE_LIMIT`, `10` requests / `60` seconds, namespace `31001` |
 | Container | `cf-gamedig-container`, `lite`, `instances: 0`, `maxInstances: 1` |
 | Container runtime | Bun image built from this repository's `Dockerfile` |
-| Worker → Container | `CONTAINER` binding, routed with `getContainer(...)` |
+| Worker → Container | `CONTAINER` binding, routed with `getContainer(...)` only after Worker checks pass |
 | Container egress | Enabled so GameDig can contact remote servers |
 | Provisioning | Alchemy |
 
@@ -615,12 +703,14 @@ The target game server is not part of the Cloudflare deployment. The Container q
 
 ## Configuration
 
-There are no application-wide game-server credentials or hard-coded Cloudflare account IDs in the repository.
+There are no hard-coded API credentials or Cloudflare account IDs in the repository.
 
 | Setting | Required | Default / source | Description |
 | --- | --- | --- | --- |
 | Alchemy profile | Deployment only | `default` | Selects stored Cloudflare authentication/account context. |
 | Cloudflare credentials | Deployment only | Configured by Alchemy login | OAuth or another Cloudflare credential method supported by Alchemy. |
+| `CF_GAMEDIG_AUTH_TOKEN` | No | empty / open mode | Non-empty deployment secret enables Bearer authentication for `/query`. |
+| `QUERY_RATE_LIMIT` | Worker binding | `10` / `60s`, namespace `31001` | Cloudflare Workers Rate Limiting binding applied to `/query`. |
 | `PORT` | Container runtime | `8080` | Port used by the Bun Container HTTP server. |
 | Query credentials | Per request only | unset | Sent through `POST /query` options when a specific GameDig protocol requires them. |
 
@@ -630,6 +720,13 @@ There are no application-wide game-server credentials or hard-coded Cloudflare a
 
 The repository includes several request-boundary protections:
 
+- optional Bearer authentication is enforced at the Worker before Container access;
+- `/query` is rate-limited at the Worker before `getContainer(...)` is called;
+- `/health` intentionally remains unauthenticated and outside the query rate limit;
+- `Authorization` is always removed before forwarding an accepted request to the Container;
+- Bearer tokens are compared using fixed-size SHA-256 digests with a constant-time byte comparison;
+- authenticated rate-limit keys use a one-way token digest rather than the raw secret;
+- Worker-generated `401`, `429`, and `503` errors never include credentials or internal exception text and use `Cache-Control: no-store`;
 - external inputs are decoded through Effect Schema rather than spread directly into GameDig;
 - game/protocol IDs are validated before the GameDig network call;
 - retries and timeouts are capped;
@@ -641,16 +738,16 @@ The repository includes several request-boundary protections:
 
 There are also important deployment considerations:
 
-- there is no authentication or authorization layer in this repository;
-- there is no built-in rate limiter;
+- open mode is still the default unless `CF_GAMEDIG_AUTH_TOKEN` is configured;
+- Cloudflare's Workers Rate Limiting is distributed and intentionally permissive around propagation, so it should be treated as abuse reduction rather than a transactional quota system;
 - `host` and optional `address` are not restricted to an allow-list;
 - there is no private/reserved-address block in the request parser;
 - the Container has outbound internet access;
-- a public deployment can therefore be asked to initiate GameDig-supported network traffic toward arbitrary destinations reachable from the Container.
+- a deliberately open deployment can therefore be asked to initiate GameDig-supported network traffic toward arbitrary destinations reachable from the Container.
 
-If the Worker is exposed to untrusted callers, add any required authentication, rate limiting, and destination policy at the deployment/application boundary before treating it as a general public query proxy.
+For untrusted deployments, enable `CF_GAMEDIG_AUTH_TOKEN`, rotate that token through deployment configuration when needed, and consider a destination policy appropriate to the deployment's threat model.
 
-POST keeps credentials out of the URL, but credentials still necessarily exist in the request body and in process memory while the selected GameDig protocol uses them.
+POST keeps GameDig protocol credentials out of the URL, but those credentials still necessarily exist in the request body and in process memory while the selected GameDig protocol uses them.
 
 ## Limitations
 
@@ -658,6 +755,7 @@ POST keeps credentials out of the URL, but credentials still necessarily exist i
 - Some GameDig protocols require protocol-specific server configuration or options beyond a basic host/port.
 - GameDig `raw` data is intentionally protocol-specific and may change between GameDig patch releases.
 - `maxInstances` is currently `1`, so this stack is configured as a small service rather than a horizontally scaled public query fleet.
+- Cloudflare's Rate Limiting binding is not a strict globally synchronized counter.
 - Local Container development requires a working Docker-compatible engine.
 - Alchemy state is currently local to the deployment environment.
 - The HTTP wrapper exposes a deliberate subset of GameDig options rather than arbitrary passthrough.
@@ -669,7 +767,8 @@ POST keeps credentials out of the URL, but credentials still necessarily exist i
 ├── .github/workflows/verify.yml   # Pull-request verification
 ├── src/
 │   ├── worker/
-│   │   └── index.ts               # Public Worker router and Container binding
+│   │   ├── handler.ts             # Worker route/auth/rate-limit boundary + test seam
+│   │   └── index.ts               # Cloudflare bindings and Container forwarding
 │   └── container/
 │       ├── index.ts               # Bun server bootstrap
 │       ├── server.ts              # HTTP routes and response mapping
@@ -679,8 +778,8 @@ POST keeps credentials out of the URL, but credentials still necessarily exist i
 │           ├── service.ts         # Effect service around GameDig.query()
 │           ├── schema.ts          # Runtime response validation
 │           └── errors.ts          # Typed GameDig failure model
-├── test/                          # Bun test suite
-├── alchemy.run.ts                 # Cloudflare Worker + Container resources
+├── test/                          # Bun test suite, including Worker boundary tests
+├── alchemy.run.ts                 # Worker, Rate Limit, secret config, and Container resources
 ├── Dockerfile                     # Production Container image
 └── package.json                   # Scripts and pinned dependencies
 ```
@@ -707,6 +806,7 @@ When changing API behaviour, update the relevant schemas/tests and keep this REA
 - [GameDig](https://github.com/gamedig/node-gamedig)
 - [GameDig 5.3.3 package](https://www.npmjs.com/package/gamedig/v/5.3.3)
 - [Cloudflare Containers](https://developers.cloudflare.com/containers/)
+- [Cloudflare Workers Rate Limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
 - [Cloudflare Containers local development](https://developers.cloudflare.com/containers/local-dev/)
 - [Alchemy Containers](https://alchemy.run/cloudflare/compute/containers)
 - [Alchemy profiles](https://alchemy.run/environments/profiles/)

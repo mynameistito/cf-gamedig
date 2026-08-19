@@ -13,8 +13,14 @@ export class GameDigContainer extends Container {
 
 export default {
   fetch(request: Request, env: InferEnv<typeof Worker>): Promise<Response> {
-    return handleWorkerRequest(request, (forwardedRequest) =>
-      getContainer(env.CONTAINER, "cf-gamedig").fetch(forwardedRequest)
+    return handleWorkerRequest(
+      request,
+      (forwardedRequest) =>
+        getContainer(env.CONTAINER, "cf-gamedig").fetch(forwardedRequest),
+      {
+        authToken: env.WORKER_AUTH_TOKEN,
+        rateLimit: env.QUERY_RATE_LIMIT,
+      }
     );
   },
 };
