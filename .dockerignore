@@ -1,0 +1,5 @@
+.alchemy
+.git
+node_modules
+test
+*.log
