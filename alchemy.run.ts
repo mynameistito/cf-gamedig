@@ -1,10 +1,11 @@
 import { Stack, localState } from "alchemy";
 import {
   Container,
+  RateLimit,
   Worker as WorkerResource,
   providers,
 } from "alchemy/Cloudflare";
-import { Effect } from "effect";
+import { Config, Effect } from "effect";
 
 import type { GameDigContainer } from "./src/worker/index.ts";
 
@@ -18,6 +19,14 @@ const container = Container<GameDigContainer>("cf-gamedig-container", {
   observability: { logs: { enabled: true } },
 });
 
+const queryRateLimit = RateLimit("QUERY_RATE_LIMIT", {
+  namespaceId: 31_001,
+  simple: {
+    limit: 10,
+    period: 60,
+  },
+});
+
 export const Worker = WorkerResource("cf-gamedig-worker", {
   compatibility: {
     date: "2026-07-11",
@@ -25,6 +34,10 @@ export const Worker = WorkerResource("cf-gamedig-worker", {
   },
   env: {
     CONTAINER: container,
+    QUERY_RATE_LIMIT: queryRateLimit,
+    WORKER_AUTH_TOKEN: Config.redacted("CF_GAMEDIG_AUTH_TOKEN").pipe(
+      Config.withDefault("")
+    ),
   },
   main: "./src/worker/index.ts",
   observability: { enabled: true },
