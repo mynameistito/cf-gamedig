@@ -1,6 +1,9 @@
 name: Issue 20 verification
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - agent/issue-20-game-id-validation
