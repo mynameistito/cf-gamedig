@@ -1,17 +1,16 @@
-export const INTERNAL_REQUEST_ID_HEADER =
-  "x-cf-gamedig-internal-request-id";
+export const INTERNAL_REQUEST_ID_HEADER = "x-cf-gamedig-internal-request-id";
 export const REQUEST_ID_HEADER = "x-cf-gamedig-request-id";
 
 const REQUEST_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
-export type HttpCompletionMetadata = {
+export interface HttpCompletionMetadata {
   readonly elapsedMs: number;
   readonly method: string;
   readonly requestId?: string;
   readonly route: string;
   readonly status: number;
-};
+}
 
 export const createRequestId = (): string => crypto.randomUUID();
 
