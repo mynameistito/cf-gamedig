@@ -76,8 +76,7 @@ const isPublicIpLiteral = (value: string): boolean | undefined => {
     );
   }
   return (
-    ipv6GlobalUnicast.check(value, "ipv6") &&
-    !ipv6Blocked.check(value, "ipv6")
+    ipv6GlobalUnicast.check(value, "ipv6") && !ipv6Blocked.check(value, "ipv6")
   );
 };
 
