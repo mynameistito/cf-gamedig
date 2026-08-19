@@ -1,22 +1,9 @@
-import { Data } from "effect3";
+import type { GameDigQueryError } from "./query-error.ts";
+import type { GameDigResponseError } from "./response-error.ts";
 
-interface GameDigErrorFields {
-  readonly type: string;
-  readonly host: string;
-  readonly port: number;
-  readonly message: string;
-  readonly elapsedMs: number;
-}
-
-/** GameDig rejected or timed out while querying the configured server. */
-export class GameDigQueryError extends Data.TaggedError(
-  "GameDigQueryError"
-)<GameDigErrorFields> {}
-
-/** GameDig returned a response that could not be normalized safely. */
-export class GameDigResponseError extends Data.TaggedError(
-  "GameDigResponseError"
-)<GameDigErrorFields> {}
+export type { GameDigErrorFields } from "./error-fields.ts";
+export { GameDigQueryError } from "./query-error.ts";
+export { GameDigResponseError } from "./response-error.ts";
 
 /** All expected failures produced by the GameDig adapter. */
 export type GameDigError = GameDigQueryError | GameDigResponseError;
