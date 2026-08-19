@@ -259,36 +259,10 @@ const PostQueryRequestSchema = Schema.Struct({
 });
 
 export type QueryParams = typeof QueryParamsSchema.Type;
-
-export interface PublicQueryParams {
-  readonly accountId?: string;
-  readonly address?: string;
-  readonly attemptTimeout: number;
-  readonly checkOldIDs: boolean;
-  readonly debug: boolean;
-  readonly givenPortOnly: boolean;
-  readonly guildId?: string;
-  readonly host: string;
-  readonly ipFamily: 0 | 4 | 6;
-  readonly login?: string;
-  readonly maxRetries: number;
-  readonly moreData?: boolean;
-  readonly noBreadthOrder: boolean;
-  readonly port?: number;
-  readonly rejectUnauthorized?: boolean;
-  readonly requestPlayers: boolean;
-  readonly requestPlayersRequired: boolean;
-  readonly requestRules: boolean;
-  readonly requestRulesRequired: boolean;
-  readonly serverId?: string;
-  readonly snapshotInterval?: "1h" | "6h" | "12h" | "1d" | "3d" | "1w" | "2w" | "4w";
-  readonly socketTimeout: number;
-  readonly stripColors: boolean;
-  readonly teamspeakQueryPort?: number;
-  readonly telnetPort?: number;
-  readonly type: string;
-  readonly username?: string;
-}
+export type PublicQueryParams = Omit<
+  QueryParams,
+  "apiKey" | "password" | "telnetPassword" | "token"
+>;
 
 const invalidQuery = (message: string) => new InvalidQueryError({ message });
 
@@ -298,10 +272,16 @@ const queryParamOr = (
   fallback: string
 ): string => searchParams.get(name)?.trim() ?? fallback;
 
-const optionalQueryParam = (
+const addOptionalQueryParam = (
+  values: Record<string, string>,
   searchParams: URLSearchParams,
   name: string
-): string | undefined => searchParams.get(name)?.trim();
+): void => {
+  const value = searchParams.get(name)?.trim();
+  if (value !== undefined && value !== null) {
+    values[name] = value;
+  }
+};
 
 const checkTimeoutRelationship = (
   query: QueryParams
@@ -312,32 +292,19 @@ const checkTimeoutRelationship = (
 
 export const findSensitiveQueryParameter = (
   searchParams: URLSearchParams
-): (typeof SENSITIVE_QUERY_OPTIONS)[number] | undefined =>
-  SENSITIVE_QUERY_OPTIONS.find((name) => searchParams.has(name));
+): (typeof SENSITIVE_QUERY_OPTIONS)[number] | undefined => {
+  for (const name of SENSITIVE_QUERY_OPTIONS) {
+    if (searchParams.has(name)) {
+      return name;
+    }
+  }
+  return undefined;
+};
 
 export const parseQueryParams = (
   searchParams: URLSearchParams
 ): Result.Result<QueryParams, InvalidQueryError> => {
-  const address = optionalQueryParam(searchParams, "address");
-  const accountId = optionalQueryParam(searchParams, "accountId");
-  const guildId = optionalQueryParam(searchParams, "guildId");
-  const login = optionalQueryParam(searchParams, "login");
-  const moreData = optionalQueryParam(searchParams, "moreData");
-  const port = optionalQueryParam(searchParams, "port");
-  const rejectUnauthorized = optionalQueryParam(
-    searchParams,
-    "rejectUnauthorized"
-  );
-  const serverId = optionalQueryParam(searchParams, "serverId");
-  const snapshotInterval = optionalQueryParam(searchParams, "snapshotInterval");
-  const teamspeakQueryPort = optionalQueryParam(
-    searchParams,
-    "teamspeakQueryPort"
-  );
-  const telnetPort = optionalQueryParam(searchParams, "telnetPort");
-  const username = optionalQueryParam(searchParams, "username");
-
-  const input = {
+  const values: Record<string, string> = {
     attemptTimeout: queryParamOr(
       searchParams,
       "attemptTimeout",
@@ -373,23 +340,28 @@ export const parseQueryParams = (
     ),
     stripColors: queryParamOr(searchParams, "stripColors", "true"),
     type: queryParamOr(searchParams, "type", ""),
-    ...(accountId === undefined ? {} : { accountId }),
-    ...(address === undefined ? {} : { address }),
-    ...(guildId === undefined ? {} : { guildId }),
-    ...(login === undefined ? {} : { login }),
-    ...(moreData === undefined ? {} : { moreData }),
-    ...(port === undefined ? {} : { port }),
-    ...(rejectUnauthorized === undefined ? {} : { rejectUnauthorized }),
-    ...(serverId === undefined ? {} : { serverId }),
-    ...(snapshotInterval === undefined ? {} : { snapshotInterval }),
-    ...(teamspeakQueryPort === undefined ? {} : { teamspeakQueryPort }),
-    ...(telnetPort === undefined ? {} : { telnetPort }),
-    ...(username === undefined ? {} : { username }),
   };
+
+  for (const name of [
+    "accountId",
+    "address",
+    "guildId",
+    "login",
+    "moreData",
+    "port",
+    "rejectUnauthorized",
+    "serverId",
+    "snapshotInterval",
+    "teamspeakQueryPort",
+    "telnetPort",
+    "username",
+  ]) {
+    addOptionalQueryParam(values, searchParams, name);
+  }
 
   return Result.flatMap(
     Result.mapError(
-      Schema.decodeUnknownResult(QueryParamsSchema)(input),
+      Schema.decodeUnknownResult(QueryParamsSchema)(values),
       (failure) =>
         invalidQuery(failure.message?.split("\n")[0] ?? "Invalid query")
     ),
@@ -398,16 +370,16 @@ export const parseQueryParams = (
 };
 
 export const parsePostQuery = (
-  input: unknown
+  unknownRequest: unknown
 ): Result.Result<QueryParams, InvalidQueryError> => {
   const decoded = Result.mapError(
-    Schema.decodeUnknownResult(PostQueryRequestSchema)(input),
+    Schema.decodeUnknownResult(PostQueryRequestSchema)(unknownRequest),
     () => invalidQuery(POST_QUERY_ERROR)
   );
 
   return Result.flatMap(decoded, (request) => {
     const options = request.options ?? {};
-    const query: QueryParams = {
+    const queryWithoutPort: QueryParams = {
       attemptTimeout: options.attemptTimeout ?? DEFAULT_ATTEMPT_TIMEOUT_MS,
       checkOldIDs: options.checkOldIDs ?? false,
       debug: options.debug ?? false,
@@ -424,45 +396,20 @@ export const parsePostQuery = (
       stripColors: options.stripColors ?? true,
       type: request.type,
       ...options,
-      ...(request.port === undefined ? {} : { port: request.port }),
     };
+    const query =
+      request.port === undefined
+        ? queryWithoutPort
+        : { ...queryWithoutPort, port: request.port };
 
     return checkTimeoutRelationship(query);
   });
 };
 
-export const toPublicQueryParams = (query: QueryParams): PublicQueryParams => ({
-  attemptTimeout: query.attemptTimeout,
-  checkOldIDs: query.checkOldIDs,
-  debug: query.debug,
-  givenPortOnly: query.givenPortOnly,
-  host: query.host,
-  ipFamily: query.ipFamily,
-  maxRetries: query.maxRetries,
-  noBreadthOrder: query.noBreadthOrder,
-  requestPlayers: query.requestPlayers,
-  requestPlayersRequired: query.requestPlayersRequired,
-  requestRules: query.requestRules,
-  requestRulesRequired: query.requestRulesRequired,
-  socketTimeout: query.socketTimeout,
-  stripColors: query.stripColors,
-  type: query.type,
-  ...(query.accountId === undefined ? {} : { accountId: query.accountId }),
-  ...(query.address === undefined ? {} : { address: query.address }),
-  ...(query.guildId === undefined ? {} : { guildId: query.guildId }),
-  ...(query.login === undefined ? {} : { login: query.login }),
-  ...(query.moreData === undefined ? {} : { moreData: query.moreData }),
-  ...(query.port === undefined ? {} : { port: query.port }),
-  ...(query.rejectUnauthorized === undefined
-    ? {}
-    : { rejectUnauthorized: query.rejectUnauthorized }),
-  ...(query.serverId === undefined ? {} : { serverId: query.serverId }),
-  ...(query.snapshotInterval === undefined
-    ? {}
-    : { snapshotInterval: query.snapshotInterval }),
-  ...(query.teamspeakQueryPort === undefined
-    ? {}
-    : { teamspeakQueryPort: query.teamspeakQueryPort }),
-  ...(query.telnetPort === undefined ? {} : { telnetPort: query.telnetPort }),
-  ...(query.username === undefined ? {} : { username: query.username }),
-});
+export const toPublicQueryParams = ({
+  apiKey: _apiKey,
+  password: _password,
+  telnetPassword: _telnetPassword,
+  token: _token,
+  ...query
+}: QueryParams): PublicQueryParams => query;
