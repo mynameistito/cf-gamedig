@@ -1,4 +1,4 @@
-import { Schema } from "effect3";
+import { Schema } from "effect";
 
 /** Normalized GameDig result exposed by the HTTP API. */
 export const GameServerStatusSchema = Schema.Struct({

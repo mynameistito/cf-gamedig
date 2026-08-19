@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema } from "effect3";
+import { Effect, Layer, Schema } from "effect";
 import { GameDig } from "gamedig";
 
 import { GameServerStatusSchema } from "../../shared/schema.ts";
@@ -49,7 +49,7 @@ const query = (
       version: result.version || undefined,
     };
 
-    const status = yield* Schema.decodeUnknown(GameServerStatusSchema)(
+    const status = yield* Schema.decodeUnknownEffect(GameServerStatusSchema)(
       candidate
     ).pipe(
       Effect.mapError(

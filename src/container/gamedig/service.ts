@@ -1,11 +1,11 @@
-import { Context } from "effect3";
-import type { Effect } from "effect3";
+import { Context } from "effect";
+import type { Effect } from "effect";
 
 import type { GameServerStatus } from "../../shared/schema.ts";
 import type { GameDigError } from "./errors.ts";
 
 /** Normalized GameDig query capability. */
-export class GameDigService extends Context.Tag("@cf-gamedig/GameDigService")<
+export class GameDigService extends Context.Service<
   GameDigService,
   {
     readonly query: (
@@ -14,4 +14,4 @@ export class GameDigService extends Context.Tag("@cf-gamedig/GameDigService")<
       port: number
     ) => Effect.Effect<GameServerStatus, GameDigError>;
   }
->() {}
+>()("@cf-gamedig/GameDigService") {}
