@@ -40,8 +40,8 @@ const BASE_QUERY: QueryParams = {
   type: "minecraft",
 };
 
-const ipv4 = (...octets: ReadonlyArray<number>): string => octets.join(".");
-const ipv6 = (...parts: ReadonlyArray<string>): string => parts.join(":");
+const ipv4 = (...octets: readonly number[]): string => octets.join(".");
+const ipv6 = (...parts: readonly string[]): string => parts.join(":");
 
 const makeFakeHandler = (targetPolicyMode: "open" | "public-safe" = "open") => {
   const calls: QueryParams[] = [];

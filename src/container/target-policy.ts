@@ -18,8 +18,8 @@ class InvalidTargetPolicyConfiguration extends taggedError<InvalidTargetPolicyCo
   { message: Schema.String }
 ) {}
 
-const ipv4 = (...octets: ReadonlyArray<number>): string => octets.join(".");
-const ipv6 = (...parts: ReadonlyArray<string>): string => parts.join(":");
+const ipv4 = (...octets: readonly number[]): string => octets.join(".");
+const ipv6 = (...parts: readonly string[]): string => parts.join(":");
 
 const ipv4Blocked = new BlockList();
 for (const [network, prefix] of [

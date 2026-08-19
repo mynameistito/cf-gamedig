@@ -27,9 +27,7 @@ class InvalidJsonError extends taggedError<InvalidJsonError>()("InvalidJson", {
 }) {}
 
 type ExecuteQuery = (query: QueryParams) => Response | Promise<Response>;
-type ExecuteParsedQuery = (
-  query: QueryParams
-) => Response | Promise<Response>;
+type ExecuteParsedQuery = (query: QueryParams) => Response | Promise<Response>;
 
 interface CollectedBody {
   readonly byteLength: number;
@@ -76,9 +74,7 @@ const parseJson = (text: string): Result.Result<unknown, InvalidJsonError> => {
   }
 };
 
-const readBodyChunk = async (
-  reader: ReadableStreamDefaultReader<Uint8Array>
-) => {
+const readBodyChunk = async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
   try {
     return Result.succeed(await reader.read());
   } catch {
@@ -142,7 +138,10 @@ const readPostBody = async (
   const reader = request.body.getReader();
   try {
     const body = await readBodyChunks(reader, { byteLength: 0, chunks: [] });
-    return Result.map(body, decodeBody);
+    if (Result.isFailure(body)) {
+      return Result.fail(body.failure);
+    }
+    return Result.succeed(decodeBody(body.success));
   } finally {
     reader.releaseLock();
   }
@@ -278,7 +277,7 @@ export const makeRequestHandler =
     executeQuery: ExecuteQuery,
     targetPolicyMode: TargetPolicyMode = DEFAULT_TARGET_POLICY_MODE
   ) =>
-  async (request: Request): Promise<Response> => {
+  (request: Request): Response | Promise<Response> => {
     const url = new URL(request.url);
     const executeParsedQuery: ExecuteParsedQuery = (query) =>
       executeValidatedQuery(query, executeQuery, targetPolicyMode);
