@@ -7,7 +7,7 @@ import {
   GameDigResultSchema,
 } from "../src/container/gamedig/schema.ts";
 import type { GameDigResult } from "../src/container/gamedig/schema.ts";
-import { GameServerStatusSchema } from "../src/shared/schema.ts";
+import { GameServerStatusSchema } from "../src/container/gamedig/status.ts";
 
 const valveRaw = {
   appId: 730,

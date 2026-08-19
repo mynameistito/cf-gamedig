@@ -14,10 +14,10 @@ Client ──HTTPS──▶ Cloudflare Worker (edge router) ──internal HTTP�
 ## Architecture
 
 - `src/worker/index.ts` — edge router forwarding `/health` and `/query` to the Container.
+- `src/container/index.ts` — Container bootstrap; owns the Bun server and runtime lifecycle.
 - `src/container/server.ts` — the Container's HTTP API; validates params and translates requests into Effect programs.
 - `src/container/query.ts` — parses and validates `?type=&host=&port=` for `/query`.
-- `src/container/gamedig/` — GameDig query service with a normalized, schema-validated response.
-- `src/shared/` — shared schemas and error-to-HTTP mapping.
+- `src/container/gamedig/` — GameDig query service with a normalized, schema-validated response, typed errors, and their HTTP projection.
 
 ## Endpoints
 

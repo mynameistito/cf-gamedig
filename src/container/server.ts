@@ -1,13 +1,12 @@
-import { Effect, ManagedRuntime } from "effect";
+import { Effect, ManagedRuntime, Result } from "effect";
 
-import { mapGameDigError } from "../shared/errors.ts";
 import type { GameDigError } from "./gamedig/errors.ts";
-import { GameDigServiceLive } from "./gamedig/live.ts";
+import { mapGameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";
 import { parseQueryParams } from "./query.ts";
 import type { QueryParams } from "./query.ts";
 
-const runtime = ManagedRuntime.make(GameDigServiceLive);
+const runtime = ManagedRuntime.make(GameDigService.layer);
 
 const json = <T>(body: T, status = 200): Response =>
   Response.json(body, {
@@ -26,7 +25,10 @@ const runGameDig = (params: QueryParams): Promise<Response> =>
   runtime.runPromise(
     gameDigProgram(params).pipe(
       Effect.match({
-        onFailure: (error: GameDigError) => json(mapGameDigError(error), 504),
+        onFailure: (error: GameDigError) => {
+          const status = error._tag === "GameDigResponseError" ? 502 : 504;
+          return json(mapGameDigError(error), status);
+        },
         onSuccess: (server) => json({ query: params, server, success: true }),
       })
     )
@@ -52,16 +54,16 @@ export const handleRequest = (
     }
     case "/query": {
       const result = parseQueryParams(new URL(request.url).searchParams);
-      if (!result.ok) {
+      if (Result.isFailure(result)) {
         return json(
           {
-            error: { message: result.message, type: "InvalidQuery" },
+            error: { message: result.failure, type: "InvalidQuery" },
             success: false,
           },
           400
         );
       }
-      return runGameDig(result.params);
+      return runGameDig(result.success);
     }
     default: {
       return json(
