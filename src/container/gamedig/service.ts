@@ -1,43 +1,27 @@
 import { Clock, Context, Effect, Layer, Schema } from "effect";
 import { GameDig } from "gamedig";
 
+import type { QueryParams } from "../query-params.ts";
 import { GameDigError } from "./errors.ts";
 import type { GameDigResult } from "./schema.ts";
 import { GameDigResultSchema } from "./schema.ts";
 
-interface GameDigQuery {
-  readonly givenPortOnly: boolean;
-  readonly host: string;
-  readonly port?: number;
-  readonly type: string;
-}
-
-interface GameDigQueryOptions {
-  readonly givenPortOnly: boolean;
-  readonly host: string;
-  readonly port?: number;
+type GameDigQueryOptions = QueryParams & {
   readonly portCache: false;
-  readonly type: string;
-}
+};
 
 type RunGameDigQuery = (options: GameDigQueryOptions) => Promise<object>;
 
 interface GameDigServiceDefinition {
   readonly query: (
-    query: GameDigQuery
+    query: QueryParams
   ) => Effect.Effect<GameDigResult, GameDigError>;
 }
 
-const toGameDigQueryOptions = (input: GameDigQuery): GameDigQueryOptions => {
-  const options: GameDigQueryOptions = {
-    givenPortOnly: input.givenPortOnly,
-    host: input.host,
-    portCache: false,
-    type: input.type,
-  };
-
-  return input.port === undefined ? options : { ...options, port: input.port };
-};
+const toGameDigQueryOptions = (input: QueryParams): GameDigQueryOptions => ({
+  ...input,
+  portCache: false,
+});
 
 export class GameDigService extends Context.Service<
   GameDigService,
@@ -51,7 +35,7 @@ export class GameDigService extends Context.Service<
 
         const query = Effect.fn("GameDigService.query")(
           function* queryGameServer(
-            input: GameDigQuery
+            input: QueryParams
           ): Effect.fn.Return<GameDigResult, GameDigError> {
             const { givenPortOnly, host, port, type } = input;
             const queryContextWithoutPort = { givenPortOnly, host, type };
