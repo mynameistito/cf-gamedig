@@ -49,7 +49,7 @@ const DEFAULT_QUERY: QueryParams = {
   requestPlayersRequired: false,
   requestRules: false,
   requestRulesRequired: false,
-  socketTimeout: 2_000,
+  socketTimeout: 2000,
   stripColors: true,
   type: "minecraft",
 };
@@ -79,16 +79,14 @@ describe("parseQueryParams", () => {
       requestPlayersRequired: true,
       requestRules: true,
       requestRulesRequired: true,
-      socketTimeout: 5_000,
+      socketTimeout: 5000,
       stripColors: false,
       type: "minecraft",
     });
   });
 
   test("keeps address separate from the required logical host", () => {
-    const query = parseOk(
-      `${BASE_QUERY}&address=203.0.113.10&ipFamily=4`
-    );
+    const query = parseOk(`${BASE_QUERY}&address=203.0.113.10&ipFamily=4`);
 
     expect(query.host).toBe("play.example.com");
     expect(query.address).toBe("203.0.113.10");
@@ -254,10 +252,14 @@ describe("parseQueryParams", () => {
   test("rejects attemptTimeout values that are not greater than socketTimeout", () => {
     expect(
       parseError(`${BASE_QUERY}&socketTimeout=5000&attemptTimeout=5000`)
-    ).toBe("Invalid timeouts: attemptTimeout must be greater than socketTimeout");
+    ).toBe(
+      "Invalid timeouts: attemptTimeout must be greater than socketTimeout"
+    );
     expect(
       parseError(`${BASE_QUERY}&socketTimeout=5000&attemptTimeout=4999`)
-    ).toBe("Invalid timeouts: attemptTimeout must be greater than socketTimeout");
+    ).toBe(
+      "Invalid timeouts: attemptTimeout must be greater than socketTimeout"
+    );
   });
 
   test("does not expose internal or unknown URL parameters", () => {
