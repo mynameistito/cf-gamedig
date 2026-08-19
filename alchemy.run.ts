@@ -13,6 +13,11 @@ const container = Container<GameDigContainer>("cf-gamedig-container", {
   className: "GameDigContainer",
   context: import.meta.dirname,
   dockerfile: "Dockerfile",
+  env: {
+    CF_GAMEDIG_TARGET_POLICY: Config.string("CF_GAMEDIG_TARGET_POLICY").pipe(
+      Config.withDefault("open")
+    ),
+  },
   instanceType: "lite",
   instances: 0,
   maxInstances: 1,

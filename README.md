@@ -15,6 +15,8 @@ The service currently provides:
 - `POST /query` for JSON queries, including credential-bearing protocol options;
 - optional Worker Bearer-token authentication, with deliberately open mode as the default;
 - Worker-side `/query` rate limiting before the Container is contacted;
+- explicit POST-body and string-field size limits;
+- configurable `open` and `public-safe` target-policy modes;
 - runtime validation against the installed GameDig game and protocol registries;
 - GameDig-style port resolution when `port` is omitted;
 - a typed, normalized response envelope with protocol-specific data preserved under `raw`;
@@ -58,6 +60,8 @@ Alchemy provisions the Worker and Container from `alchemy.run.ts`. The current s
 | Generic options | Typed, allow-listed GET and POST support |
 | Protocol options | Typed support for the protocol-specific options listed below |
 | Protocol credentials | Sensitive GameDig values are rejected in GET URLs and accepted through POST JSON |
+| Request limits | 16 KiB POST body plus explicit limits for host, address, type, protocol strings, and credentials |
+| Target policy | `open` by default; optional `public-safe` rejection of non-public IP literals before GameDig networking |
 | Worker authentication | Optional Bearer token from a redacted deployment secret; unset means open mode |
 | Worker rate limiting | Cloudflare Rate Limiting on `/query`, `10` requests per `60` seconds per stable client identity |
 | Response | Stable GameDig result fields plus `players[].raw`, `bots[].raw`, and `server.raw` |
@@ -136,8 +140,8 @@ If `/query` expects the rate-limit binding but the binding is missing or throws,
 
 | Field | GET | POST | Required | Type | Description |
 | --- | --- | --- | --- | --- | --- |
-| `type` | query parameter | top level | Yes | string | Current GameDig game ID, permitted legacy ID, or installed `protocol-*` ID. Surrounding whitespace is trimmed. |
-| `host` | query parameter | top level | Yes | string | Logical hostname or IP passed to GameDig. Must be non-empty. |
+| `type` | query parameter | top level | Yes | string | Current GameDig game ID, permitted legacy ID, or installed `protocol-*` ID. Surrounding whitespace is trimmed. Maximum 128 characters. |
+| `host` | query parameter | top level | Yes | string | Logical hostname or IP passed to GameDig. Must be non-empty. Maximum 253 characters. |
 | `port` | query parameter | top level | No | integer `1`–`65535` | Supplied game/query port. When omitted, GameDig may resolve a default/query/offset port from game metadata. |
 
 ### `GET /query`
@@ -163,7 +167,7 @@ Use `POST /query` for those fields.
 
 ### `POST /query`
 
-POST requests must use `Content-Type: application/json`.
+POST requests must use `Content-Type: application/json`. The complete request body is limited to 16 KiB (16,384 bytes). The Container checks both a declared `Content-Length` when present and the actual streamed byte count so an oversized body is rejected before it is fully buffered or JSON-decoded.
 
 Core identity fields stay at the top level. GameDig options belong under `options`:
 
@@ -181,7 +185,41 @@ Core identity fields stay at the top level. GameDig options belong under `option
 
 POST uses natural JSON types: booleans are booleans and numbers are numbers. Unknown object properties are not forwarded into GameDig.
 
-Malformed JSON returns `400`. Missing or unsupported content types return `415`.
+Malformed JSON returns `400`. Missing or unsupported content types return `415`. A body larger than 16 KiB returns stable `413 PayloadTooLarge` JSON. All Container JSON responses use `Cache-Control: no-store`.
+
+### Request limits
+
+The HTTP wrapper applies named limits before GameDig is called:
+
+| Input | Limit | Oversize behaviour |
+| --- | --- | --- |
+| Complete `POST /query` body | 16 KiB / 16,384 bytes | `413 PayloadTooLarge` |
+| `host` | 253 characters | `400 InvalidQuery` |
+| `address` | 253 characters | `400 InvalidQuery` |
+| `type` | 128 characters | `400 InvalidQuery` |
+| Protocol-specific non-secret strings | 512 characters | `400 InvalidQuery` |
+| Credential-bearing values | 4096 characters | `400 InvalidQuery` |
+
+The 512-character protocol-string limit currently applies to `accountId`, `guildId`, `login`, `serverId`, and `username`. The 4096-character credential limit applies to `apiKey`, `password`, `telnetPassword`, and `token`.
+
+Credential validation errors intentionally do not include the supplied value. Invalid POST objects use the stable `Invalid POST /query body` response rather than serializing the schema failure, so oversized or malformed credentials are not echoed back to the caller.
+
+### Target policy
+
+The Container has two target-policy modes controlled by `CF_GAMEDIG_TARGET_POLICY`:
+
+| Mode | Default | Behaviour |
+| --- | --- | --- |
+| `open` | **Yes** | Preserves existing self-host/private-network behaviour. Private, loopback, link-local, and other destinations are not rejected by this policy. |
+| `public-safe` | No | Rejects clearly non-public IPv4 and IPv6 **literals** in both logical `host` and connection `address` before the GameDig query runs. |
+
+`public-safe` rejects literal destinations from categories such as loopback, private/unique-local, link-local, carrier-grade NAT, benchmarking/documentation, multicast, unspecified, and reserved/special-use ranges. IPv6 acceptance is deliberately conservative: ordinary global-unicast literals are accepted while clearly special-use ranges are rejected.
+
+`host` and `address` remain separate inputs. A public-safe request can keep a logical hostname while supplying a public literal connection address, but an unsafe literal in either field is rejected even if the other field is public.
+
+The wrapper deliberately does **not** claim complete hostname/DNS SSRF protection. In GameDig 5.3.3, `host` is resolved internally when `address` is absent, while a supplied `address` bypasses that GameDig resolver for the primary connection. Some protocols also use the logical `host` independently for HTTP, telnet, or other secondary connections. Non-literal `host` or `address` values are therefore allowed without pre-resolving every eventual destination, and DNS rebinding or protocol-specific secondary destinations are outside the guarantee of `public-safe`.
+
+Use `public-safe` as a literal-destination safety boundary, not as a complete outbound network sandbox. If a deployment needs guaranteed network-level egress isolation, enforce that at an infrastructure/network boundary in addition to this request policy.
 
 ### Generic GameDig options
 
@@ -189,7 +227,7 @@ These options are exposed by the wrapper in addition to `type`, `host`, and `por
 
 | Option | Type | GET | POST | Default | Validation / behaviour |
 | --- | --- | --- | --- | --- | --- |
-| `address` | string | Yes | Yes | unset | Non-empty connection-address override. `host` is still required and remains available to protocols. |
+| `address` | string | Yes | Yes | unset | Non-empty connection-address override, maximum 253 characters. `host` is still required and remains available to protocols. |
 | `maxRetries` | integer | Yes | Yes | `1` | `0`–`3`. GameDig 5.3.3 itself treats `0` through its runtime fallback behaviour. |
 | `socketTimeout` | integer ms | Yes | Yes | `2000` | `1`–`15000`. Per socket/packet operation. |
 | `attemptTimeout` | integer ms | Yes | Yes | `10000` | `1`–`60000` and must be greater than `socketTimeout`. |
@@ -206,7 +244,7 @@ These options are exposed by the wrapper in addition to `type`, `host`, and `por
 
 The wrapper caps retries and timeouts before calling GameDig. It also forces `portCache=false` on every request so a successful query port from one request is not reused by another.
 
-When `address` is supplied, GameDig skips its own hostname resolution for the connection address. `host` is still preserved because some protocols use the logical host independently.
+When `address` is supplied, GameDig skips its own hostname resolution for the primary connection address. `host` is still preserved because some protocols use the logical host independently.
 
 ### Protocol-specific options
 
@@ -229,6 +267,8 @@ The following protocol-specific options are part of the current public schema. T
 | `moreData` | boolean | Yes | Yes | No | Enables additional 7 Days to Die telnet-derived data. |
 | `snapshotInterval` | string enum | Yes | Yes | No | Broken Protocol snapshot interval: `1h`, `6h`, `12h`, `1d`, `3d`, `1w`, `2w`, or `4w`. |
 
+Non-secret protocol strings are limited to 512 characters. Credential-bearing protocol strings are limited to 4096 characters and must use POST JSON.
+
 ### GET vs POST
 
 | Behaviour | GET `/query` | POST `/query` |
@@ -239,6 +279,7 @@ The following protocol-specific options are part of the current public schema. T
 | Booleans | Exact `true` / `false` strings | JSON booleans |
 | Sensitive options | Rejected with `400 InvalidQuery` | Accepted when valid |
 | Content type | Not applicable | Must be `application/json` |
+| Body limit | Not applicable | 16 KiB |
 | Unknown values | Unknown query parameters are ignored | Unknown schema properties are not forwarded |
 
 Credentials are kept out of URLs because URLs are commonly retained in access logs, proxies, browser history, and monitoring systems. Sensitive values are also omitted from the returned `query` object. Because GameDig debug output can include its full options object, this wrapper forces GameDig `debug` off whenever a request carries `apiKey`, `password`, `telnetPassword`, or `token`.
@@ -419,21 +460,34 @@ Sensitive request values are never included in the successful response's `query`
 
 ## Errors
 
-Public API errors use a JSON envelope with `success: false`. Worker-generated errors use `Cache-Control: no-store`.
+Public API errors use a JSON envelope with `success: false`. Worker- and Container-generated API responses use `Cache-Control: no-store`.
 
 | HTTP status | Error type | When it is returned |
 | --- | --- | --- |
-| `400` | `InvalidQuery` | Missing/invalid fields, invalid option values, invalid timeout relationship, unsupported game/protocol ID, or sensitive option supplied through GET. |
+| `400` | `InvalidQuery` | Missing/invalid fields, oversized parsed fields, invalid option values, invalid timeout relationship, unsupported game/protocol ID, public-safe literal target rejection, or sensitive option supplied through GET. |
 | `400` | `InvalidJson` | Malformed POST JSON. |
 | `401` | `Unauthorized` | Worker authentication is enabled and the Bearer credential is missing or invalid. |
 | `404` | `NotFound` | Unsupported public route rejected by the Worker. |
 | `405` | `MethodNotAllowed` | Unsupported method rejected by the Worker. |
+| `413` | `PayloadTooLarge` | The complete `POST /query` body exceeds 16 KiB. |
 | `415` | `UnsupportedMediaType` | `POST /query` without `Content-Type: application/json`. |
 | `429` | `RateLimited` | The Worker-side `/query` rate limit rejected the request. |
 | `502` | `GameDigResponseError` | GameDig returned a result that failed the wrapper's response schema. |
 | `503` | `ContainerUnavailable` | Container forwarding failed before a downstream response was received. |
 | `503` | `RateLimitUnavailable` | The expected rate-limit binding is missing or failed. The Worker fails closed. |
 | `504` | `GameDigQueryError` | GameDig failed while trying to query the target server. |
+
+Representative oversized-body response:
+
+```json
+{
+  "error": {
+    "message": "POST /query body exceeds 16384 bytes",
+    "type": "PayloadTooLarge"
+  },
+  "success": false
+}
+```
 
 Representative GameDig failure:
 
@@ -499,8 +553,10 @@ This is not a claim of complete one-for-one `GameDig.query()` compatibility.
 Current intentional or structural differences include:
 
 - `host` is required by the HTTP schema for every request;
+- request-body and exposed string fields are bounded by the limits above;
 - only documented, allow-listed options are accepted;
 - credential-bearing fields must use POST JSON;
+- `public-safe` is a wrapper-level literal target policy rather than a change to GameDig's protocol implementations;
 - `portCache` is always disabled;
 - `listenUdpPort` is not exposed;
 - POST uses a wrapper-specific nested `options` object;
@@ -598,7 +654,9 @@ WSL is a local-development fallback, not a deployment requirement.
 
 ## Testing
 
-The test suite covers query parsing, GameDig option forwarding, game/protocol ID validation, protocol-specific options, response schema compatibility, transport behaviour, Worker route/auth/rate-limit behaviour, credential redaction, and error handling.
+The test suite covers query parsing, GameDig option forwarding, game/protocol ID validation, protocol-specific options, response schema compatibility, transport behaviour, Worker route/auth/rate-limit behaviour, request-size boundaries, target-policy modes, credential redaction, and error handling.
+
+The request-security tests are deterministic. They exercise body and field boundaries, oversized credentials without secret echo, open-mode private-network compatibility, representative public and blocked IPv4/IPv6 literals, and the distinction between logical `host` and connection `address`. They use the request-handler test seam and do not depend on public DNS or public game servers.
 
 The Worker tests exercise open mode, missing/invalid/valid Bearer credentials, `Authorization` stripping, `/health` exemption, allowed and blocked rate-limit decisions, fail-closed rate-limit misconfiguration, rejection before Container forwarding, and secret-free errors.
 
@@ -658,6 +716,30 @@ bun run deploy --profile <profile>
 
 Leave `CF_GAMEDIG_AUTH_TOKEN` unset or empty to deploy intentionally in open mode.
 
+### Configure the target policy
+
+`CF_GAMEDIG_TARGET_POLICY` configures the Container target policy and defaults to `open`.
+
+For a public-facing deployment where private literal targets should be rejected, set `public-safe` in the environment running Alchemy:
+
+Bash / WSL:
+
+```bash
+export CF_GAMEDIG_TARGET_POLICY="public-safe"
+bun run deploy --profile <profile>
+```
+
+PowerShell:
+
+```powershell
+$env:CF_GAMEDIG_TARGET_POLICY = "public-safe"
+bun run deploy --profile <profile>
+```
+
+For a private/self-hosted deployment that intentionally queries RFC1918, loopback, link-local, or other non-public targets, leave the variable unset or set it explicitly to `open`.
+
+The same variable is read by the Container when using `bun run start`. Any value other than `open` or `public-safe` is treated as an invalid Container configuration and prevents the server from starting.
+
 ### Deploy to Cloudflare
 
 ```bash
@@ -695,11 +777,12 @@ The service-side compute and abuse-protection boundary are Cloudflare-hosted:
 | Worker rate limit | `QUERY_RATE_LIMIT`, `10` requests / `60` seconds, namespace `31001` |
 | Container | `cf-gamedig-container`, `lite`, `instances: 0`, `maxInstances: 1` |
 | Container runtime | Bun image built from this repository's `Dockerfile` |
+| Container target policy | `CF_GAMEDIG_TARGET_POLICY`, default `open`; optional `public-safe` literal filtering |
 | Worker → Container | `CONTAINER` binding, routed with `getContainer(...)` only after Worker checks pass |
 | Container egress | Enabled so GameDig can contact remote servers |
 | Provisioning | Alchemy |
 
-The target game server is not part of the Cloudflare deployment. The Container queries whatever remote server the API request identifies.
+The target game server is not part of the Cloudflare deployment. The Container queries the target identified by the API request, subject to the configured request-level target policy.
 
 ## Configuration
 
@@ -710,6 +793,7 @@ There are no hard-coded API credentials or Cloudflare account IDs in the reposit
 | Alchemy profile | Deployment only | `default` | Selects stored Cloudflare authentication/account context. |
 | Cloudflare credentials | Deployment only | Configured by Alchemy login | OAuth or another Cloudflare credential method supported by Alchemy. |
 | `CF_GAMEDIG_AUTH_TOKEN` | No | empty / open mode | Non-empty deployment secret enables Bearer authentication for `/query`. |
+| `CF_GAMEDIG_TARGET_POLICY` | No | `open` | Container target policy. Allowed values are `open` and `public-safe`. |
 | `QUERY_RATE_LIMIT` | Worker binding | `10` / `60s`, namespace `31001` | Cloudflare Workers Rate Limiting binding applied to `/query`. |
 | `PORT` | Container runtime | `8080` | Port used by the Bun Container HTTP server. |
 | Query credentials | Per request only | unset | Sent through `POST /query` options when a specific GameDig protocol requires them. |
@@ -728,29 +812,35 @@ The repository includes several request-boundary protections:
 - authenticated rate-limit keys use a one-way token digest rather than the raw secret;
 - Worker-generated `401`, `429`, and `503` errors never include credentials or internal exception text and use `Cache-Control: no-store`;
 - external inputs are decoded through Effect Schema rather than spread directly into GameDig;
+- POST bodies and exposed string values are bounded before the GameDig call;
+- oversized credential values are rejected without echoing the supplied credential;
 - game/protocol IDs are validated before the GameDig network call;
 - retries and timeouts are capped;
 - credential fields are rejected in GET URLs;
 - successful responses omit `apiKey`, `password`, `telnetPassword`, and `token`;
 - GameDig debug mode is forced off for credential-bearing requests;
 - Container JSON responses use `Cache-Control: no-store`;
-- `portCache` is disabled to avoid sharing GameDig's singleton port-cache state across requests.
+- `portCache` is disabled to avoid sharing GameDig's singleton port-cache state across requests;
+- optional `public-safe` mode rejects clearly non-public IPv4 and IPv6 literals in both `host` and `address` before GameDig networking starts.
 
 There are also important deployment considerations:
 
-- open mode is still the default unless `CF_GAMEDIG_AUTH_TOKEN` is configured;
+- Worker authentication is still disabled by default unless `CF_GAMEDIG_AUTH_TOKEN` is configured;
+- the target policy is `open` by default so self-host/private-network compatibility is preserved;
+- for an internet-facing deployment, `public-safe` reduces the literal-target attack surface but is not a complete SSRF or network-egress sandbox;
+- the wrapper does not pre-resolve hostname/non-literal targets, so DNS results are not guaranteed to remain public;
+- GameDig 5.3.3 can resolve `host` internally and some protocols can make HTTP, telnet, or other secondary connections using the logical host;
 - Cloudflare's Workers Rate Limiting is distributed and intentionally permissive around propagation, so it should be treated as abuse reduction rather than a transactional quota system;
-- `host` and optional `address` are not restricted to an allow-list;
-- there is no private/reserved-address block in the request parser;
-- the Container has outbound internet access;
-- a deliberately open deployment can therefore be asked to initiate GameDig-supported network traffic toward arbitrary destinations reachable from the Container.
+- the Container has outbound internet access because GameDig needs it.
 
-For untrusted deployments, enable `CF_GAMEDIG_AUTH_TOKEN`, rotate that token through deployment configuration when needed, and consider a destination policy appropriate to the deployment's threat model.
+For an untrusted public deployment, enable `CF_GAMEDIG_AUTH_TOKEN` and set `CF_GAMEDIG_TARGET_POLICY=public-safe`. Treat those controls as application-layer protections; use infrastructure-level outbound network policy as well if the threat model requires guaranteed destination isolation.
 
 POST keeps GameDig protocol credentials out of the URL, but those credentials still necessarily exist in the request body and in process memory while the selected GameDig protocol uses them.
 
 ## Limitations
 
+- `public-safe` validates IP literals only. It does not pre-resolve hostnames or guarantee that DNS results and protocol-specific secondary connections stay on public destinations.
+- Some GameDig protocols use logical `host` separately from the primary connection `address`, so request-level literal filtering cannot guarantee every destination a protocol may contact.
 - Cloudflare Container IPv6 egress has not been verified by this repository. `ipFamily=6` is accepted and forwarded without silently downgrading to IPv4.
 - Some GameDig protocols require protocol-specific server configuration or options beyond a basic host/port.
 - GameDig `raw` data is intentionally protocol-specific and may change between GameDig patch releases.
@@ -770,16 +860,20 @@ POST keeps GameDig protocol credentials out of the URL, but those credentials st
 │   │   ├── handler.ts             # Worker route/auth/rate-limit boundary + test seam
 │   │   └── index.ts               # Cloudflare bindings and Container forwarding
 │   └── container/
-│       ├── index.ts               # Bun server bootstrap
-│       ├── server.ts              # HTTP routes and response mapping
-│       ├── query-params.ts        # GET/POST schemas, defaults, limits, redaction
+│       ├── index.ts               # Bun server bootstrap + target-policy configuration
+│       ├── server.ts              # HTTP routes, bounded POST reading, response mapping
+│       ├── query-params.ts        # GET/POST schemas, defaults, field limits, redaction
+│       ├── request-limits.ts      # Named body/string limits
+│       ├── request-errors.ts      # Typed request-boundary errors
+│       ├── target-policy.ts       # Open/public-safe target policy
+│       ├── target-policy-error.ts # Typed target-policy query error
 │       ├── game-type.ts           # GameDig game/protocol ID validation
 │       └── gamedig/
 │           ├── service.ts         # Effect service around GameDig.query()
 │           ├── schema.ts          # Runtime response validation
 │           └── errors.ts          # Typed GameDig failure model
-├── test/                          # Bun test suite, including Worker boundary tests
-├── alchemy.run.ts                 # Worker, Rate Limit, secret config, and Container resources
+├── test/                          # Bun test suite, including request-security tests
+├── alchemy.run.ts                 # Worker, Rate Limit, secret config, target policy, Container
 ├── Dockerfile                     # Production Container image
 └── package.json                   # Scripts and pinned dependencies
 ```
