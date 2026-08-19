@@ -25,6 +25,20 @@ const openProtection = (): WorkerProtection => ({
   rateLimit: ALLOWING_RATE_LIMIT,
 });
 
+const getForwardedRequestId = (requests: readonly Request[]): string => {
+  expect(requests).toHaveLength(1);
+  const [request] = requests;
+  if (request === undefined) {
+    throw new Error("Expected one forwarded request");
+  }
+
+  const requestId = request.headers.get(INTERNAL_REQUEST_ID_HEADER);
+  if (requestId === null) {
+    throw new Error("Expected forwarded request ID");
+  }
+  return requestId;
+};
+
 describe("request correlation", () => {
   test("Worker generates an authoritative request ID and propagates it", async () => {
     const callerId = "11111111-1111-4111-8111-111111111111";
@@ -46,15 +60,12 @@ describe("request correlation", () => {
       (metadata) => completions.push(metadata)
     );
 
-    expect(forwardedRequests).toHaveLength(1);
-    const forwardedId = forwardedRequests[0]?.headers.get(
-      INTERNAL_REQUEST_ID_HEADER
-    );
+    const forwardedId = getForwardedRequestId(forwardedRequests);
     expect(forwardedId).toMatch(REQUEST_ID_PATTERN);
     expect(forwardedId).not.toBe(callerId);
     expect(response.headers.get(REQUEST_ID_HEADER)).toBe(forwardedId);
     expect(completions).toHaveLength(1);
-    expect(completions[0]?.requestId).toBe(forwardedId ?? undefined);
+    expect(completions[0]?.requestId).toBe(forwardedId);
   });
 
   test("oversized caller IDs cannot replace the trusted internal value", async () => {
@@ -72,9 +83,7 @@ describe("request correlation", () => {
       openProtection()
     );
 
-    const forwardedId = forwardedRequests[0]?.headers.get(
-      INTERNAL_REQUEST_ID_HEADER
-    );
+    const forwardedId = getForwardedRequestId(forwardedRequests);
     expect(forwardedId).toMatch(REQUEST_ID_PATTERN);
     expect(forwardedId).not.toBe(oversizedId);
     expect(response.headers.get(REQUEST_ID_HEADER)).toBe(forwardedId);
