@@ -9,7 +9,7 @@ describe("API schemas", () => {
     const decoded = Schema.decodeUnknownSync(GameServerStatusSchema)({
       map: "surf_utopia",
       maxPlayers: 64,
-      name: "KZG Test",
+      name: "cf-gamedig Test",
       online: true,
       players: 23,
     });
@@ -21,7 +21,7 @@ describe("API schemas", () => {
       Schema.decodeUnknownSync(GameServerStatusSchema)({
         map: "surf_utopia",
         maxPlayers: 64,
-        name: "KZG Test",
+        name: "cf-gamedig Test",
         online: true,
         players: "23",
       })

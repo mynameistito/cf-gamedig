@@ -95,8 +95,8 @@ ALCHEMY_PROFILE=<profile> bun run deploy
 Check logs after deploying:
 
 ```bash
-ALCHEMY_PROFILE=<profile> bun alchemy logs --filter KzgGameDigPoc --since 30m --limit 100
-ALCHEMY_PROFILE=<profile> bun alchemy logs --filter KzgContainer --since 30m --limit 100
+ALCHEMY_PROFILE=<profile> bun alchemy logs --filter cf-gamedig-worker --since 30m --limit 100
+ALCHEMY_PROFILE=<profile> bun alchemy logs --filter cf-gamedig-container --since 30m --limit 100
 ```
 
 ## Notes

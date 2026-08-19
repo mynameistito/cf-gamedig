@@ -3,8 +3,8 @@ import type * as Cloudflare from "alchemy/Cloudflare";
 
 import type { Worker } from "../../alchemy.run.ts";
 
-/** Container-backed Durable Object that owns the POC process lifecycle. */
-export class KzgContainer extends Container {
+/** Container-backed Durable Object that owns the process lifecycle. */
+export class GameDigContainer extends Container {
   override defaultPort = 8080;
   override requiredPorts = [8080];
   override sleepAfter = "1m";
@@ -34,6 +34,6 @@ export default {
       );
     }
 
-    return getContainer(env.CONTAINER, "kzg-poc").fetch(request);
+    return getContainer(env.CONTAINER, "cf-gamedig").fetch(request);
   },
 };
