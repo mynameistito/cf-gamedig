@@ -1,4 +1,4 @@
-import { Result, Schema } from "effect";
+import { Result, Schema, SchemaTransformation } from "effect";
 
 const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
 const taggedError = Schema.TaggedError;
@@ -14,6 +14,16 @@ const requiredString = (message: string) =>
     Schema.check(Schema.isMinLength(1, { message }))
   );
 
+const GivenPortOnlySchema = Schema.Literals(["false", "true"]).pipe(
+  Schema.decodeTo(
+    Schema.Boolean,
+    SchemaTransformation.transform({
+      decode: (value) => value === "true",
+      encode: (value) => (value ? "true" : "false"),
+    })
+  )
+);
+
 const PortSchema = Schema.NumberFromString.pipe(
   Schema.check(Schema.isInt({ message: PORT_ERROR })),
   Schema.check(
@@ -22,8 +32,9 @@ const PortSchema = Schema.NumberFromString.pipe(
 );
 
 const QueryParamsSchema = Schema.Struct({
+  givenPortOnly: GivenPortOnlySchema,
   host: requiredString("Missing required parameter: host"),
-  port: PortSchema,
+  port: Schema.optionalKey(PortSchema),
   type: requiredString("Missing required parameter: type"),
 });
 
@@ -32,11 +43,16 @@ export type QueryParams = typeof QueryParamsSchema.Type;
 export const parseQueryParams = (
   searchParams: URLSearchParams
 ): Result.Result<QueryParams, InvalidQueryError> => {
-  const input = {
+  const port = searchParams.get("port");
+  const inputWithoutPort = {
+    givenPortOnly: searchParams.get("givenPortOnly")?.trim() ?? "false",
     host: searchParams.get("host")?.trim() ?? "",
-    port: searchParams.get("port")?.trim() ?? "",
     type: searchParams.get("type")?.trim() ?? "",
   };
+  const input =
+    port === null
+      ? inputWithoutPort
+      : { ...inputWithoutPort, port: port.trim() };
 
   return Result.mapError(
     Schema.decodeUnknownResult(QueryParamsSchema)(input),

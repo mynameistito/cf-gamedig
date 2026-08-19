@@ -6,10 +6,21 @@ import type { GameDigResult } from "./schema.ts";
 import { GameDigResultSchema } from "./schema.ts";
 
 interface GameDigQuery {
+  readonly givenPortOnly: boolean;
   readonly host: string;
-  readonly port: number;
+  readonly port?: number;
   readonly type: string;
 }
+
+interface GameDigQueryOptions {
+  readonly givenPortOnly: boolean;
+  readonly host: string;
+  readonly port?: number;
+  readonly portCache: false;
+  readonly type: string;
+}
+
+type RunGameDigQuery = (options: GameDigQueryOptions) => Promise<object>;
 
 interface GameDigServiceDefinition {
   readonly query: (
@@ -17,77 +28,91 @@ interface GameDigServiceDefinition {
   ) => Effect.Effect<GameDigResult, GameDigError>;
 }
 
+const toGameDigQueryOptions = (input: GameDigQuery): GameDigQueryOptions => {
+  const options: GameDigQueryOptions = {
+    givenPortOnly: input.givenPortOnly,
+    host: input.host,
+    portCache: false,
+    type: input.type,
+  };
+
+  return input.port === undefined ? options : { ...options, port: input.port };
+};
+
 export class GameDigService extends Context.Service<
   GameDigService,
   GameDigServiceDefinition
 >()("@cf-gamedig/GameDigService") {
-  static readonly layer = Layer.effect(
-    GameDigService,
-    Effect.gen(function* makeGameDigService() {
-      const clock = yield* Clock.Clock;
+  static readonly makeLayer = (runGameDigQuery: RunGameDigQuery) =>
+    Layer.effect(
+      GameDigService,
+      Effect.gen(function* makeGameDigService() {
+        const clock = yield* Clock.Clock;
 
-      const query = Effect.fn("GameDigService.query")(function* queryGameServer(
-        input: GameDigQuery
-      ): Effect.fn.Return<GameDigResult, GameDigError> {
-        const { host, port, type } = input;
-        const startedAt = clock.currentTimeMillisUnsafe();
+        const query = Effect.fn("GameDigService.query")(
+          function* queryGameServer(
+            input: GameDigQuery
+          ): Effect.fn.Return<GameDigResult, GameDigError> {
+            const { givenPortOnly, host, port, type } = input;
+            const queryContextWithoutPort = { givenPortOnly, host, type };
+            const queryContext =
+              port === undefined
+                ? queryContextWithoutPort
+                : { ...queryContextWithoutPort, port };
+            const startedAt = clock.currentTimeMillisUnsafe();
 
-        yield* Effect.logInfo("GameDig query started").pipe(
-          Effect.annotateLogs({ host, port, type })
-        );
+            yield* Effect.logInfo("GameDig query started").pipe(
+              Effect.annotateLogs(queryContext)
+            );
 
-        const externalResult = yield* Effect.tryPromise({
-          catch: (cause) =>
-            new GameDigError({
-              cause,
-              elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
-              host,
-              kind: "query",
-              message:
-                cause instanceof Error ? cause.message : "GameDig query failed",
-              port,
-              type,
-            }),
-          try: () =>
-            GameDig.query({
-              givenPortOnly: true,
-              host,
-              port,
-              type,
-            }),
-        });
+            const externalResult = yield* Effect.tryPromise({
+              catch: (cause) =>
+                new GameDigError({
+                  cause,
+                  elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
+                  ...queryContext,
+                  kind: "query",
+                  message:
+                    cause instanceof Error
+                      ? cause.message
+                      : "GameDig query failed",
+                }),
+              try: () => runGameDigQuery(toGameDigQueryOptions(input)),
+            });
 
-        const result = yield* Schema.decodeUnknownEffect(GameDigResultSchema)(
-          externalResult
-        ).pipe(
-          Effect.mapError(
-            (cause) =>
-              new GameDigError({
-                cause,
+            const result = yield* Schema.decodeUnknownEffect(
+              GameDigResultSchema
+            )(externalResult).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new GameDigError({
+                    cause,
+                    elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
+                    ...queryContext,
+                    kind: "response",
+                    message: "GameDig returned an invalid server result",
+                  })
+              )
+            );
+
+            yield* Effect.logInfo("GameDig query completed").pipe(
+              Effect.annotateLogs({
                 elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
-                host,
-                kind: "response",
-                message: "GameDig returned an invalid server result",
-                port,
-                type,
+                ...queryContext,
+                players: result.numplayers,
+                queryPort: result.queryPort,
               })
-          )
+            );
+
+            return result;
+          }
         );
 
-        yield* Effect.logInfo("GameDig query completed").pipe(
-          Effect.annotateLogs({
-            elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
-            host,
-            players: result.numplayers,
-            port,
-            type,
-          })
-        );
+        return GameDigService.of({ query });
+      })
+    );
 
-        return result;
-      });
-
-      return GameDigService.of({ query });
-    })
+  static readonly layer = GameDigService.makeLayer((options) =>
+    GameDig.query(options)
   );
 }
