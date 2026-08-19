@@ -238,7 +238,7 @@ describe("public-safe target policy", () => {
 
   test("rejects representative non-public IPv6 literal ranges", () => {
     const blocked = [
-      ipv6("", ""),
+      ipv6("", "", ""),
       ipv6("", "", "1"),
       ipv6("", "", "ffff", "7f00", "1"),
       ipv6("64", "ff9b", "", "7f00", "1"),
