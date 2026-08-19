@@ -200,16 +200,94 @@ describe("/query transport", () => {
 
   test("parses the required protocol-specific option combinations", async () => {
     const cases = [
-      [{ guildId: "123456789012345678" }, { host: "discord.example.com", options: { guildId: "123456789012345678" }, type: "discord" }],
-      [{ accountId: "TEST_ACCOUNT", apiKey: TEST_CREDENTIAL, serverId: "42" }, { host: "scpsl.example.com", options: { accountId: "TEST_ACCOUNT", apiKey: TEST_CREDENTIAL, serverId: "42" }, type: "scpsl" }],
-      [{ token: TEST_CREDENTIAL }, { host: "farm.example.com", options: { token: TEST_CREDENTIAL }, type: "farmingsimulator22" }],
-      [{ token: TEST_CREDENTIAL }, { host: "terraria.example.com", options: { token: TEST_CREDENTIAL }, type: "terraria" }],
-      [{ password: TEST_CREDENTIAL, username: "admin" }, { host: "pal.example.com", options: { password: TEST_CREDENTIAL, username: "admin" }, type: "palworld" }],
-      [{ moreData: true, telnetPassword: TEST_CREDENTIAL, telnetPort: 8081 }, { host: "7dtd.example.com", options: { moreData: true, telnetPassword: TEST_CREDENTIAL, telnetPort: 8081 }, type: "7daystodie" }],
-      [{ teamspeakQueryPort: 10_011 }, { host: "ts.example.com", options: { teamspeakQueryPort: 10_011 }, type: "teamspeak3" }],
-      [{ login: "SuperAdmin", password: TEST_CREDENTIAL }, { host: "nadeo.example.com", options: { login: "SuperAdmin", password: TEST_CREDENTIAL }, type: "trackmania2" }],
-      [{ rejectUnauthorized: true, token: TEST_CREDENTIAL }, { host: "satisfactory.example.com", options: { rejectUnauthorized: true, token: TEST_CREDENTIAL }, type: "satisfactory" }],
-      [{ serverId: "server-42", snapshotInterval: "6h" }, { host: "bp.example.com", options: { serverId: "server-42", snapshotInterval: "6h" }, type: "brokeprotocol" }],
+      [
+        { guildId: "123456789012345678" },
+        {
+          host: "discord.example.com",
+          options: { guildId: "123456789012345678" },
+          type: "discord",
+        },
+      ],
+      [
+        { accountId: "TEST_ACCOUNT", apiKey: TEST_CREDENTIAL, serverId: "42" },
+        {
+          host: "scpsl.example.com",
+          options: {
+            accountId: "TEST_ACCOUNT",
+            apiKey: TEST_CREDENTIAL,
+            serverId: "42",
+          },
+          type: "scpsl",
+        },
+      ],
+      [
+        { token: TEST_CREDENTIAL },
+        {
+          host: "farm.example.com",
+          options: { token: TEST_CREDENTIAL },
+          type: "farmingsimulator22",
+        },
+      ],
+      [
+        { token: TEST_CREDENTIAL },
+        {
+          host: "terraria.example.com",
+          options: { token: TEST_CREDENTIAL },
+          type: "terraria",
+        },
+      ],
+      [
+        { password: TEST_CREDENTIAL, username: "admin" },
+        {
+          host: "pal.example.com",
+          options: { password: TEST_CREDENTIAL, username: "admin" },
+          type: "palworld",
+        },
+      ],
+      [
+        { moreData: true, telnetPassword: TEST_CREDENTIAL, telnetPort: 8081 },
+        {
+          host: "7dtd.example.com",
+          options: {
+            moreData: true,
+            telnetPassword: TEST_CREDENTIAL,
+            telnetPort: 8081,
+          },
+          type: "7daystodie",
+        },
+      ],
+      [
+        { teamspeakQueryPort: 10_011 },
+        {
+          host: "ts.example.com",
+          options: { teamspeakQueryPort: 10_011 },
+          type: "teamspeak3",
+        },
+      ],
+      [
+        { login: "SuperAdmin", password: TEST_CREDENTIAL },
+        {
+          host: "nadeo.example.com",
+          options: { login: "SuperAdmin", password: TEST_CREDENTIAL },
+          type: "trackmania2",
+        },
+      ],
+      [
+        { rejectUnauthorized: true, token: TEST_CREDENTIAL },
+        {
+          host: "satisfactory.example.com",
+          options: { rejectUnauthorized: true, token: TEST_CREDENTIAL },
+          type: "satisfactory",
+        },
+      ],
+      [
+        { serverId: "server-42", snapshotInterval: "6h" },
+        {
+          host: "bp.example.com",
+          options: { serverId: "server-42", snapshotInterval: "6h" },
+          type: "brokeprotocol",
+        },
+      ],
     ] as const;
     const results = await Promise.all(
       cases.map(([, request]) => postQuery(JSON.stringify(request)))
