@@ -1,5 +1,10 @@
 import { Effect, ManagedRuntime, Result, Schema } from "effect";
 
+import {
+  makeHttpCompletionMetadata,
+  readInternalRequestId,
+  withRequestIdHeader,
+} from "../request-correlation.ts";
 import { parseGameTypeQuery } from "./game-type.ts";
 import { mapGameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";
@@ -26,7 +31,15 @@ class InvalidJsonError extends taggedError<InvalidJsonError>()("InvalidJson", {
   message: Schema.String,
 }) {}
 
-type ExecuteQuery = (query: QueryParams) => Response | Promise<Response>;
+interface RequestContext {
+  readonly requestId?: string;
+}
+
+type ExecuteQuery = (
+  query: QueryParams,
+  context: RequestContext
+) => Response | Promise<Response>;
+type ExecuteParsedQuery = (query: QueryParams) => Response | Promise<Response>;
 
 interface CollectedBody {
   readonly byteLength: number;
@@ -180,31 +193,37 @@ const hasJsonContentType = (request: Request): boolean =>
     ?.trim()
     .toLowerCase() === "application/json";
 
-const runQuery = (query: QueryParams): Promise<Response> =>
-  runtime.runPromise(
-    Effect.gen(function* queryGameServer() {
-      const gameDig = yield* GameDigService;
-      return yield* gameDig.query(query);
-    }).pipe(
-      Effect.match({
-        onFailure: (error) => {
-          const status = error.kind === "response" ? 502 : 504;
-          return respondJson(mapGameDigError(error), status);
-        },
-        onSuccess: (server) =>
-          respondJson({
-            query: toPublicQueryParams(query),
-            server,
-            success: true,
-          }),
-      })
-    )
+const runQuery: ExecuteQuery = (query, context) => {
+  const program = Effect.gen(function* queryGameServer() {
+    const gameDig = yield* GameDigService;
+    return yield* gameDig.query(query);
+  }).pipe(
+    Effect.match({
+      onFailure: (error) => {
+        const status = error.kind === "response" ? 502 : 504;
+        return respondJson(mapGameDigError(error), status);
+      },
+      onSuccess: (server) =>
+        respondJson({
+          query: toPublicQueryParams(query),
+          server,
+          success: true,
+        }),
+    })
   );
+
+  return runtime.runPromise(
+    context.requestId === undefined
+      ? program
+      : program.pipe(Effect.annotateLogs("requestId", context.requestId))
+  );
+};
 
 const executeValidatedQuery = (
   query: QueryParams,
   executeQuery: ExecuteQuery,
-  targetPolicyMode: TargetPolicyMode
+  targetPolicyMode: TargetPolicyMode,
+  context: RequestContext
 ): Response | Promise<Response> => {
   const parsedGameType = parseGameTypeQuery(query);
   if (Result.isFailure(parsedGameType)) {
@@ -225,12 +244,12 @@ const executeValidatedQuery = (
     );
   }
 
-  return executeQuery(allowedTarget.success);
+  return executeQuery(allowedTarget.success, context);
 };
 
 const handleGetQuery = (
   searchParams: URLSearchParams,
-  executeQuery: ExecuteQuery
+  executeQuery: ExecuteParsedQuery
 ): Response | Promise<Response> => {
   const sensitiveParameter = findSensitiveQueryParameter(searchParams);
   if (sensitiveParameter !== undefined) {
@@ -248,7 +267,7 @@ const handleGetQuery = (
 
 const handlePostQuery = async (
   request: Request,
-  executeQuery: ExecuteQuery
+  executeQuery: ExecuteParsedQuery
 ): Promise<Response> => {
   if (!hasJsonContentType(request)) {
     return respondJson(
@@ -302,46 +321,89 @@ const methodNotAllowed = (allowedMethods: readonly string[]) => {
   return response;
 };
 
+const routeRequest = (
+  request: Request,
+  executeQuery: ExecuteQuery,
+  targetPolicyMode: TargetPolicyMode,
+  context: RequestContext
+): Response | Promise<Response> => {
+  const url = new URL(request.url);
+  const executeParsedQuery: ExecuteParsedQuery = (query) =>
+    executeValidatedQuery(query, executeQuery, targetPolicyMode, context);
+
+  if (url.pathname === "/health") {
+    return request.method === "GET"
+      ? respondJson({ service: "cf-gamedig-container", success: true })
+      : methodNotAllowed(["GET"]);
+  }
+
+  if (url.pathname !== "/query") {
+    return request.method === "GET"
+      ? respondJson(
+          {
+            error: { message: "Route not found", type: "NotFound" },
+            success: false,
+          },
+          404
+        )
+      : methodNotAllowed(["GET"]);
+  }
+
+  if (request.method === "GET") {
+    return handleGetQuery(url.searchParams, executeParsedQuery);
+  }
+  if (request.method === "POST") {
+    return handlePostQuery(request, executeParsedQuery);
+  }
+  return methodNotAllowed(["GET", "POST"]);
+};
+
 export const makeRequestHandler =
   (
     executeQuery: ExecuteQuery,
     targetPolicyMode: TargetPolicyMode = DEFAULT_TARGET_POLICY_MODE
   ) =>
-  (request: Request): Response | Promise<Response> => {
-    const url = new URL(request.url);
-    const executeParsedQuery: ExecuteQuery = (query) =>
-      executeValidatedQuery(query, executeQuery, targetPolicyMode);
+  async (request: Request): Promise<Response> => {
+    const requestId = readInternalRequestId(request);
+    const context: RequestContext =
+      requestId === undefined ? {} : { requestId };
+    const response = await routeRequest(
+      request,
+      executeQuery,
+      targetPolicyMode,
+      context
+    );
 
-    if (url.pathname === "/health") {
-      return request.method === "GET"
-        ? respondJson({ service: "cf-gamedig-container", success: true })
-        : methodNotAllowed(["GET"]);
-    }
-
-    if (url.pathname !== "/query") {
-      return request.method === "GET"
-        ? respondJson(
-            {
-              error: { message: "Route not found", type: "NotFound" },
-              success: false,
-            },
-            404
-          )
-        : methodNotAllowed(["GET"]);
-    }
-
-    if (request.method === "GET") {
-      return handleGetQuery(url.searchParams, executeParsedQuery);
-    }
-    if (request.method === "POST") {
-      return handlePostQuery(request, executeParsedQuery);
-    }
-    return methodNotAllowed(["GET", "POST"]);
+    return requestId === undefined
+      ? response
+      : withRequestIdHeader(response, requestId);
   };
 
 export const makeContainerRequestHandler = (
   targetPolicyMode: TargetPolicyMode
-) => makeRequestHandler(runQuery, targetPolicyMode);
+) => {
+  const handler = makeRequestHandler(runQuery, targetPolicyMode);
+
+  return async (request: Request): Promise<Response> => {
+    const startedAt = Date.now();
+    const response = await handler(request);
+    const requestId = readInternalRequestId(request);
+    const metadata = makeHttpCompletionMetadata(
+      request,
+      response,
+      Date.now() - startedAt,
+      requestId
+    );
+
+    await runtime.runPromise(
+      Effect.logInfo("Container HTTP request completed").pipe(
+        Effect.annotateLogs({ event: "container_http_completed", ...metadata })
+      )
+    );
+
+    return response;
+  };
+};
 
 export const handleRequest = makeContainerRequestHandler(
   DEFAULT_TARGET_POLICY_MODE
