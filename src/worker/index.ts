@@ -11,11 +11,14 @@ export class GameDigContainer extends Container {
   override sleepAfter = "1m";
   override enableInternet = true;
 
-  override onStart(): void {
+  override onStart(this: GameDigContainer): void {
     console.info(JSON.stringify({ event: "container_lifecycle_started" }));
   }
 
-  override onStop({ exitCode, reason }: StopParams): void {
+  override onStop(
+    this: GameDigContainer,
+    { exitCode, reason }: StopParams
+  ): void {
     console.info(
       JSON.stringify({
         event: "container_lifecycle_stopped",
@@ -25,9 +28,12 @@ export class GameDigContainer extends Container {
     );
   }
 
-  override onError(error: unknown): unknown {
+  override onError(
+    this: GameDigContainer,
+    ...args: Parameters<Container["onError"]>
+  ): never {
     console.error(JSON.stringify({ event: "container_lifecycle_error" }));
-    throw error;
+    throw args[0];
   }
 }
 
