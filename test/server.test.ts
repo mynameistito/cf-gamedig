@@ -1,9 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 
-import {
-  disposeRuntime,
-  handleRequest,
-} from "../src/container/server.ts";
+import { disposeRuntime, handleRequest } from "../src/container/server.ts";
 
 afterAll(async () => {
   await disposeRuntime();
