@@ -36,7 +36,7 @@ const parseError = (search: string): string => {
 
 const BASE_QUERY = "?type=minecraft&host=play.example.com";
 
-const DEFAULT_QUERY = {
+const DEFAULT_QUERY: QueryParams = {
   attemptTimeout: 10_000,
   checkOldIDs: false,
   debug: false,
