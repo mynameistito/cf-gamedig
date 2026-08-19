@@ -108,9 +108,9 @@ const withoutAuthorization = (request: Request): Request => {
     return request;
   }
 
-  const headers = new Headers(request.headers);
-  headers.delete("authorization");
-  return new Request(request, { headers });
+  const forwardedRequest = new Request(request);
+  forwardedRequest.headers.delete("authorization");
+  return forwardedRequest;
 };
 
 const clientRateLimitKey = (
