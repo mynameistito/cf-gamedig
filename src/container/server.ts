@@ -37,7 +37,7 @@ interface CollectedBody {
 }
 
 interface CancelableReadable {
-  cancel(): Promise<void>;
+  readonly cancel: () => Promise<void>;
 }
 
 const respondJson = <T>(body: T, status = 200): Response =>
