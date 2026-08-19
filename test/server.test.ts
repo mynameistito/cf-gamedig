@@ -217,7 +217,7 @@ describe("/query transport", () => {
             apiKey: TEST_CREDENTIAL,
             serverId: "42",
           },
-          type: "scpsl",
+          type: "ssl",
         },
       ],
       [
