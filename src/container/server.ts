@@ -53,7 +53,10 @@ export const handleRequest = (
       if (Result.isFailure(query)) {
         return respondJson(
           {
-            error: { message: query.failure, type: "InvalidQuery" },
+            error: {
+              message: query.failure.message,
+              type: query.failure._tag,
+            },
             success: false,
           },
           400
