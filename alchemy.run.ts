@@ -4,7 +4,7 @@ import {
   Worker as WorkerResource,
   providers,
 } from "alchemy/Cloudflare";
-import { gen } from "effect/Effect";
+import { Effect } from "effect";
 
 import type { GameDigContainer as GameDigContainerClass } from "./src/worker/index.ts";
 
@@ -41,7 +41,7 @@ export default Stack(
     providers: providers(),
     state: localState(),
   },
-  gen(function* runStack() {
+  Effect.gen(function* runStack() {
     const worker = yield* Worker;
     return { url: worker.url };
   })
