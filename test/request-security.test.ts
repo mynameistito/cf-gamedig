@@ -13,6 +13,7 @@ import {
   MAX_CREDENTIAL_LENGTH,
   MAX_HOST_LENGTH,
   MAX_POST_BODY_BYTES,
+  MAX_POST_BODY_CHUNKS,
   MAX_PROTOCOL_STRING_LENGTH,
   MAX_TYPE_LENGTH,
 } from "../src/container/request-limits.ts";
@@ -81,6 +82,26 @@ const postQuery = async (body: string) => {
   return { body: responseBody, calls, response };
 };
 
+const postStream = async (
+  stream: ReadableStream<Uint8Array>,
+  contentLength?: string
+) => {
+  const { calls, handler } = makeFakeHandler();
+  const headers = new Headers({ "content-type": "application/json" });
+  if (contentLength !== undefined) {
+    headers.set("content-length", contentLength);
+  }
+  const response = await handler(
+    new Request("https://container.local/query", {
+      body: stream,
+      headers,
+      method: "POST",
+    })
+  );
+  const responseBody: unknown = await response.json();
+  return { body: responseBody, calls, response };
+};
+
 const parseGet = (query: string) =>
   parseQueryParams(
     new URL(`https://container.local/query?${query}`).searchParams
@@ -97,6 +118,58 @@ describe("request size limits", () => {
     expect(body).toEqual({
       error: {
         message: `POST /query body exceeds ${MAX_POST_BODY_BYTES} bytes`,
+        type: "PayloadTooLarge",
+      },
+      success: false,
+    });
+  });
+
+  test("rejects oversized streamed bodies without content-length and cancels the stream", async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+      start(controller) {
+        controller.enqueue(new Uint8Array(MAX_POST_BODY_BYTES + 1));
+      },
+    });
+    const { calls, response } = await postStream(stream);
+
+    expect(response.status).toBe(413);
+    expect(calls).toHaveLength(0);
+    expect(cancelled).toBe(true);
+  });
+
+  test("rejects bodies larger than a declared content-length", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(MAX_POST_BODY_BYTES + 1));
+        controller.close();
+      },
+    });
+    const { calls, response } = await postStream(stream, "1");
+
+    expect(response.status).toBe(413);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects overly fragmented streamed bodies", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let index = 0; index <= MAX_POST_BODY_CHUNKS; index += 1) {
+          controller.enqueue(new Uint8Array([120]));
+        }
+        controller.close();
+      },
+    });
+    const { body, calls, response } = await postStream(stream);
+
+    expect(response.status).toBe(413);
+    expect(calls).toHaveLength(0);
+    expect(body).toEqual({
+      error: {
+        message: `POST /query body exceeds ${MAX_POST_BODY_CHUNKS} chunks`,
         type: "PayloadTooLarge",
       },
       success: false,
@@ -171,6 +244,21 @@ describe("request size limits", () => {
         success: false,
       });
     }
+  });
+
+  test("rejects oversized GET credentials before parsing without echoing them", async () => {
+    const credential = `credential-${"x".repeat(MAX_CREDENTIAL_LENGTH + 1)}`;
+    const { body, calls, response } = await getQuery(
+      `type=minecraft&host=example.com&password=${credential}`
+    );
+
+    expect(response.status).toBe(400);
+    expect(calls).toHaveLength(0);
+    expect(JSON.stringify(body)).not.toContain(credential);
+    expect(body).toMatchObject({
+      error: { type: "InvalidQuery" },
+      success: false,
+    });
   });
 });
 
@@ -256,6 +344,33 @@ describe("public-safe target policy", () => {
       expect(
         Result.isFailure(
           applyTargetPolicy({ ...BASE_QUERY, host }, "public-safe")
+        )
+      ).toBe(true);
+    }
+  });
+
+  test("rejects non-canonical numeric and scoped IP forms", () => {
+    const blocked = [
+      "2130706433",
+      "0177.0.0.1",
+      "0x7f000001",
+      "127.1",
+      "127.0.0.1.",
+      "fe80::1%eth0",
+    ];
+
+    for (const target of blocked) {
+      expect(
+        Result.isFailure(
+          applyTargetPolicy({ ...BASE_QUERY, host: target }, "public-safe")
+        )
+      ).toBe(true);
+      expect(
+        Result.isFailure(
+          applyTargetPolicy(
+            { ...BASE_QUERY, address: target },
+            "public-safe"
+          )
         )
       ).toBe(true);
     }
