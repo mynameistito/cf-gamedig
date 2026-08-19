@@ -1,4 +1,14 @@
+import {
+  createRequestId,
+  INTERNAL_REQUEST_ID_HEADER,
+  makeHttpCompletionMetadata,
+  withRequestIdHeader,
+} from "../request-correlation.ts";
+import type { HttpCompletionMetadata } from "../request-correlation.ts";
+
 type ForwardRequest = (request: Request) => Response | Promise<Response>;
+
+type RecordHttpCompletion = (metadata: HttpCompletionMetadata) => void;
 
 interface QueryRateLimit {
   readonly limit: (options: {
@@ -103,14 +113,22 @@ const authenticate = async (
   };
 };
 
-const withoutAuthorization = (request: Request): Request => {
-  if (request.headers.get("authorization") === null) {
-    return request;
-  }
+const prepareForwardRequest = (request: Request, requestId: string): Request => {
+  const forwardedRequest =
+    request.headers.get("authorization") === null
+      ? request
+      : new Request(request);
 
-  const forwardedRequest = new Request(request);
-  forwardedRequest.headers.delete("authorization");
-  return forwardedRequest;
+  try {
+    forwardedRequest.headers.delete("authorization");
+    forwardedRequest.headers.set(INTERNAL_REQUEST_ID_HEADER, requestId);
+    return forwardedRequest;
+  } catch {
+    const headers = new Headers(forwardedRequest.headers);
+    headers.delete("authorization");
+    headers.set(INTERNAL_REQUEST_ID_HEADER, requestId);
+    return new Request(forwardedRequest, { headers });
+  }
 };
 
 const clientRateLimitKey = (
@@ -132,38 +150,67 @@ const clientRateLimitKey = (
  * @param request - The incoming public Worker request.
  * @param forwardRequest - The concrete Container forwarding function.
  * @param protection - Worker authentication and query rate-limit bindings.
+ * @param recordHttpCompletion - Optional safe structured completion recorder.
  * @returns The downstream response or a Worker-generated boundary error.
  */
 export const handleWorkerRequest = async (
   request: Request,
   forwardRequest: ForwardRequest,
-  protection: WorkerProtection
+  protection: WorkerProtection,
+  recordHttpCompletion?: RecordHttpCompletion
 ): Promise<Response> => {
+  const requestId = createRequestId();
+  const startedAt = Date.now();
   const { pathname } = new URL(request.url);
 
+  const complete = (response: Response): Response => {
+    const correlatedResponse = withRequestIdHeader(response, requestId);
+    if (recordHttpCompletion !== undefined) {
+      try {
+        recordHttpCompletion(
+          makeHttpCompletionMetadata(
+            request,
+            correlatedResponse,
+            Date.now() - startedAt,
+            requestId
+          )
+        );
+      } catch {
+        // Observability is best-effort and must not change request outcomes.
+      }
+    }
+    return correlatedResponse;
+  };
+
   if (pathname !== "/health" && pathname !== "/query") {
-    return errorResponse("Supported routes: /health, /query", "NotFound", 404);
+    return complete(
+      errorResponse("Supported routes: /health, /query", "NotFound", 404)
+    );
   }
 
   if (!isAllowedMethod(request.method, pathname)) {
-    return errorResponse("Method not allowed", "MethodNotAllowed", 405);
+    return complete(errorResponse("Method not allowed", "MethodNotAllowed", 405));
   }
 
   if (pathname === "/query") {
     const authentication = await authenticate(request, protection.authToken);
     if (authentication.status === "unauthorized") {
-      return errorResponse(
-        "Missing or invalid bearer token",
-        "Unauthorized",
-        401
+      return complete(
+        errorResponse(
+          "Missing or invalid bearer token",
+          "Unauthorized",
+          401
+        )
       );
     }
 
     if (protection.rateLimit === undefined) {
-      return errorResponse(
-        "Query rate limiting is unavailable",
-        "RateLimitUnavailable",
-        503
+      return complete(
+        errorResponse(
+          "Query rate limiting is unavailable",
+          "RateLimitUnavailable",
+          503
+        )
       );
     }
 
@@ -172,24 +219,32 @@ export const handleWorkerRequest = async (
         key: clientRateLimitKey(request, authentication),
       });
       if (!success) {
-        return errorResponse("Query rate limit exceeded", "RateLimited", 429);
+        return complete(
+          errorResponse("Query rate limit exceeded", "RateLimited", 429)
+        );
       }
     } catch {
-      return errorResponse(
-        "Query rate limiting is unavailable",
-        "RateLimitUnavailable",
-        503
+      return complete(
+        errorResponse(
+          "Query rate limiting is unavailable",
+          "RateLimitUnavailable",
+          503
+        )
       );
     }
   }
 
   try {
-    return await forwardRequest(withoutAuthorization(request));
+    return complete(
+      await forwardRequest(prepareForwardRequest(request, requestId))
+    );
   } catch {
-    return errorResponse(
-      "GameDig service temporarily unavailable",
-      "ContainerUnavailable",
-      503
+    return complete(
+      errorResponse(
+        "GameDig service temporarily unavailable",
+        "ContainerUnavailable",
+        503
+      )
     );
   }
 };
