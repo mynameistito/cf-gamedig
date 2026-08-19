@@ -82,7 +82,7 @@ const isPublicIpLiteral = (value: string): boolean | undefined => {
 };
 
 export const parseTargetPolicyMode = (
-  value: string | undefined
+  value?: string
 ): Result.Result<TargetPolicyMode, InvalidTargetPolicyConfiguration> =>
   Result.mapError(
     Schema.decodeUnknownResult(TargetPolicyModeSchema)(

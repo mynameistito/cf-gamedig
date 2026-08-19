@@ -82,7 +82,7 @@ const readBodyChunks = async (
 ): Promise<
   Result.Result<CollectedBody, InvalidJsonError | PayloadTooLargeError>
 > => {
-  let chunk: ReadableStreamReadResult<Uint8Array>;
+  let chunk: ReadableStreamDefaultReadResult<Uint8Array>;
   try {
     chunk = await reader.read();
   } catch {
