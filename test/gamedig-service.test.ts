@@ -30,7 +30,7 @@ const makeGameDigResult = (queryPort: number) => ({
 });
 
 const queryWithFake = async (query: QueryParams, queryPort: number) => {
-  const calls: Array<CapturedGameDigOptions> = [];
+  const calls: CapturedGameDigOptions[] = [];
   const runtime = ManagedRuntime.make(
     GameDigService.makeLayer((options) => {
       calls.push(options);

@@ -44,12 +44,13 @@ export const parseQueryParams = (
   searchParams: URLSearchParams
 ): Result.Result<QueryParams, InvalidQueryError> => {
   const port = searchParams.get("port");
-  const input = {
+  const inputWithoutPort = {
     givenPortOnly: searchParams.get("givenPortOnly")?.trim() ?? "false",
     host: searchParams.get("host")?.trim() ?? "",
-    ...(port === null ? {} : { port: port.trim() }),
     type: searchParams.get("type")?.trim() ?? "",
   };
+  const input =
+    port === null ? inputWithoutPort : { ...inputWithoutPort, port: port.trim() };
 
   return Result.mapError(
     Schema.decodeUnknownResult(QueryParamsSchema)(input),

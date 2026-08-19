@@ -53,16 +53,17 @@ describe("parseQueryParams", () => {
   });
 
   test("accepts valid supplied port boundaries", () => {
-    expect(parseOk("?type=minecraft&host=example.com&port=1").port).toBe(1);
-    expect(parseOk("?type=minecraft&host=example.com&port=65535").port).toBe(
-      65_535
-    );
+    const minimum = parseOk("?type=minecraft&host=example.com&port=1");
+    const maximum = parseOk("?type=minecraft&host=example.com&port=65535");
+
+    expect(minimum.port).toBe(1);
+    expect(maximum.port).toBe(65_535);
   });
 
   test("defaults givenPortOnly to false", () => {
-    expect(parseOk("?type=arma3&host=example.com&port=2302").givenPortOnly).toBe(
-      false
-    );
+    const query = parseOk("?type=arma3&host=example.com&port=2302");
+
+    expect(query.givenPortOnly).toBe(false);
   });
 
   test("parses explicit givenPortOnly=true", () => {

@@ -29,19 +29,26 @@ interface GameDigErrorResponse {
   readonly success: false;
 }
 
-export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => ({
-  elapsedMs: error.elapsedMs,
-  error: {
-    message: error.message,
-    type:
-      error.kind === "response" ? "GameDigResponseError" : "GameDigQueryError",
-  },
-  query: {
+export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => {
+  const queryWithoutPort = {
     givenPortOnly: error.givenPortOnly,
     host: error.host,
-    ...(error.port === undefined ? {} : { port: error.port }),
     type: error.type,
-  },
-  stage: "gamedig",
-  success: false,
-});
+  };
+  const query =
+    error.port === undefined
+      ? queryWithoutPort
+      : { ...queryWithoutPort, port: error.port };
+
+  return {
+    elapsedMs: error.elapsedMs,
+    error: {
+      message: error.message,
+      type:
+        error.kind === "response" ? "GameDigResponseError" : "GameDigQueryError",
+    },
+    query,
+    stage: "gamedig",
+    success: false,
+  };
+};
