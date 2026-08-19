@@ -1,90 +1,134 @@
-# Cloudflare Container + GameDig template
+# cf-gamedig-container
 
-Template / demo for running [GameDig](https://github.com/gamedig/node-gamedig) on Cloudflare.
+Run [GameDig](https://github.com/gamedig/node-gamedig) behind a Cloudflare Worker and Cloudflare Container.
 
-GameDig queries game servers over UDP, which Cloudflare Workers can't do directly. Cloudflare **Containers** allow non-HTTP egress, so the GameDig logic runs inside a Container exposed through a Worker router.
+`cf-gamedig-container` exposes a small HTTP API for querying remote game servers with GameDig. The Worker is the public edge entrypoint; it forwards supported requests to a Cloudflare Container, where Bun and GameDig can use the network protocols required by game-server query implementations.
 
-```text
-Client ──HTTPS──▶ Cloudflare Worker (edge router) ──internal HTTP──▶ Container
-                                                                      │ UDP
-                                                                      ▼
-                                                              <game server>:27015
-```
+## Overview
+
+GameDig needs capabilities such as UDP, TCP, DNS, and protocol-specific HTTP requests that are not a good fit for running directly inside a Worker. This project keeps the public HTTP edge in a Cloudflare Worker and runs GameDig inside a Cloudflare Container with outbound internet access.
+
+The service currently provides:
+
+- `GET /health` for liveness checks;
+- `GET /query` for ordinary non-secret GameDig queries;
+- `POST /query` for JSON queries, including credential-bearing protocol options;
+- runtime validation against the installed GameDig game and protocol registries;
+- GameDig-style port resolution when `port` is omitted;
+- a typed, normalized response envelope with protocol-specific data preserved under `raw`;
+- bounded retries and timeouts suitable for a public HTTP wrapper.
+
+The application itself can run entirely on Cloudflare. The game server being queried remains an external target and does not need to be hosted on Cloudflare.
 
 ## Architecture
 
-- `src/worker/index.ts` — edge router forwarding `GET /health`, `GET /query`, and `POST /query` to the Container.
-- `src/container/index.ts` — Container bootstrap; owns the Bun server and runtime lifecycle.
-- `src/container/server.ts` — the Container's HTTP API; validates requests and translates them into Effect programs.
-- `src/container/query-params.ts` — parses and validates the allow-listed GET and POST `/query` inputs into one typed GameDig query object.
-- `src/container/game-type.ts` — validates normalized game/protocol IDs directly against the registries exported by the installed GameDig runtime before networking.
-- `src/container/gamedig/` — GameDig query service with a normalized, schema-validated response, typed errors, and their HTTP projection.
+```mermaid
+flowchart LR
+    Client["API client"]
+    Worker["Cloudflare Worker<br/>public HTTP router"]
+    Binding["Container binding<br/>getContainer(...)"]
+    Container["Cloudflare Container<br/>Bun HTTP server"]
+    GameDig["GameDig 5.3.3"]
+    GameServer["Remote game server"]
 
-## Endpoints
+    Client -->|HTTPS| Worker
+    Worker --> Binding
+    Binding -->|internal HTTP| Container
+    Container --> GameDig
+    GameDig -->|UDP / TCP / HTTP / DNS as required| GameServer
+```
 
-| Method | Route | Description |
+The Worker only accepts the public routes documented below and forwards matching requests through the `CONTAINER` binding. The `GameDigContainer` listens on port `8080`, has outbound internet access enabled, and is addressed by the stable container key `cf-gamedig`.
+
+Alchemy provisions the Worker and Container from `alchemy.run.ts`. The current stack uses a `lite` Container, starts with zero instances, allows at most one Cloudflare instance, enables observability, and lets the Container sleep after one minute of inactivity.
+
+## Features
+
+| Area | Current behaviour |
+| --- | --- |
+| GameDig runtime | Pinned to `gamedig@5.3.3` |
+| Game IDs | Validated from GameDig's exported `games` registry |
+| Legacy IDs | Supported only when `checkOldIDs=true` |
+| Protocol forcing | Supports installed `protocol-*` IDs such as `protocol-valve` |
+| Query ports | `port` is optional; GameDig can apply game defaults, `port_query`, and `port_query_offset` |
+| Generic options | Typed, allow-listed GET and POST support |
+| Protocol options | Typed support for the protocol-specific options listed below |
+| Credentials | Sensitive values are rejected in GET URLs and accepted through POST JSON |
+| Response | Stable GameDig result fields plus `players[].raw`, `bots[].raw`, and `server.raw` |
+| Port cache | Disabled intentionally for every request |
+| Runtime model | Cloudflare Worker in front of a Cloudflare Container |
+
+## API
+
+Use the deployed Worker URL as the base URL in the examples below:
+
+```text
+https://<deployment>
+```
+
+### Routes
+
+| Method | Route | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Liveness check. |
-| `GET` | `/query?type=<game>&host=<host>` | Backwards-compatible GameDig query for ordinary, non-secret options. |
-| `POST` | `/query` | JSON GameDig query. Required when credentials are needed. |
+| `GET` | `/health` | Return a liveness response from the Container service. |
+| `GET` | `/query` | Query a server using URL parameters. Sensitive options are not allowed. |
+| `POST` | `/query` | Query a server using a JSON body. Use this form when credentials are required. |
 
-Ordinary GET queries continue to work:
+Other public routes or methods are rejected by the Worker.
+
+### `GET /health`
+
+Request:
+
+```bash
+curl "https://<deployment>/health"
+```
+
+Response:
+
+```json
+{
+  "service": "cf-gamedig-container",
+  "success": true
+}
+```
+
+### Core query fields
+
+`type` and `host` are always required. `port` is optional.
+
+| Field | GET | POST | Required | Type | Description |
+| --- | --- | --- | --- | --- | --- |
+| `type` | query parameter | top level | Yes | string | Current GameDig game ID, permitted legacy ID, or installed `protocol-*` ID. Surrounding whitespace is trimmed. |
+| `host` | query parameter | top level | Yes | string | Logical hostname or IP passed to GameDig. Must be non-empty. |
+| `port` | query parameter | top level | No | integer `1`–`65535` | Supplied game/query port. When omitted, GameDig may resolve a default/query/offset port from game metadata. |
+
+### `GET /query`
+
+GET is intended for ordinary, non-secret queries.
 
 ```bash
 curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27015"
-curl "https://<deployment>/query?type=counterstrike2&host=example.com&requestRules=true"
-curl "https://<deployment>/query?type=minecraft&host=example.com&socketTimeout=5000&attemptTimeout=15000&maxRetries=2"
 ```
 
-### Choosing `type`
+URL values are parsed through an allow-list. Unknown query-string parameters are ignored rather than forwarded to GameDig.
 
-`type` is checked locally before GameDig can perform DNS, UDP, TCP, or HTTP work. Surrounding whitespace is trimmed. An unknown ID returns `400 InvalidQuery` and does not invoke the GameDig query function.
+GET booleans are strict lowercase strings: only `true` and `false` are accepted. Values such as `1`, `0`, `yes`, `on`, and `TRUE` fail validation.
 
-GameDig 5.3.3 is the source of truth. This wrapper reads the `games` and `protocols` registries exported by the installed `gamedig` package instead of maintaining a copied list of hundreds of IDs. The package's bundled `GAMES_LIST.md` is the human-readable list for that installed version; GameDig's upstream [games list](https://github.com/gamedig/node-gamedig/blob/master/GAMES_LIST.md) is useful when browsing the project, but the installed runtime registry controls this service.
+Sensitive options are rejected even if the rest of the request is valid:
 
-- **Current game IDs:** use a key from GameDig's `games` registry, such as `minecraft` or `counterstrike2`.
-- **Legacy IDs:** GameDig stores some former IDs as `extra.old_id`. They are rejected by default. Set `checkOldIDs=true` to allow an old-only ID to resolve the same way GameDig 5.3.3 resolves it. A value that is also a current ID remains valid regardless of `checkOldIDs`.
-- **Protocol forcing:** use `protocol-<name>` only for a protocol exported by GameDig, for example `protocol-valve`. Unsupported protocol names are rejected locally rather than being allowed to fail later in GameDig's protocol resolver.
+- `apiKey`
+- `password`
+- `telnetPassword`
+- `token`
 
-The installed `@types/gamedig@5.0.3` declarations lag parts of GameDig 5.3.3 runtime behavior. Runtime GameDig is authoritative where they disagree; this project keeps the smallest local/runtime-accurate types needed instead of reshaping responses to stale declarations.
+Use `POST /query` for those fields.
 
-### GET `/query` parameters
+### `POST /query`
 
-Only the parameters in this table are parsed and forwarded. Unknown URL parameters are ignored rather than being spread into GameDig.
+POST requests must use `Content-Type: application/json`.
 
-| Option | Input type | Default | Validation / limit | GameDig behavior |
-| --- | --- | --- | --- | --- |
-| `type` | string | required | Must resolve to an installed current ID, allowed legacy ID, or supported `protocol-*` ID after trimming. | Logical GameDig game/protocol id. |
-| `host` | string | required | Non-empty after trimming. | Required logical host. It remains available to protocols even when `address` is supplied. |
-| `address` | string | unset | If supplied, must be non-empty after trimming. | Connection-address override. GameDig skips its own DNS resolution when this is present; it does not replace `host`. |
-| `port` | integer | GameDig/game default | `1`–`65535`. | Supplied game/query port. When omitted, GameDig can resolve game defaults, query ports, and offsets. |
-| `maxRetries` | integer | `1` | `0`–`3`. | Forwarded unchanged. GameDig 5.3.3 treats `0` as its fallback default because its runtime uses a truthy fallback for this field. |
-| `socketTimeout` | integer milliseconds | `2000` | `1`–`15000`. | Timeout for an individual socket/packet operation. |
-| `attemptTimeout` | integer milliseconds | `10000` | `1`–`60000`, and must be greater than `socketTimeout`. | Timeout for a complete GameDig attempt. |
-| `givenPortOnly` | boolean | `false` | Exactly `true` or `false`. | Restricts GameDig to the supplied port instead of trying resolved/default/offset ports. |
-| `ipFamily` | integer enum | `0` | One of `0`, `4`, `6`. | Passed to GameDig DNS lookup: `0` allows either family, `4` requests IPv4, `6` requests IPv6. |
-| `debug` | boolean | `false` | Exactly `true` or `false`. | Enables GameDig debug logging for requests without credentials. |
-| `stripColors` | boolean | `true` | Exactly `true` or `false`. | Controls color stripping in GameDig protocols that implement it. |
-| `noBreadthOrder` | boolean | `false` | Exactly `true` or `false`. | Switches GameDig retry ordering from breadth-first to per-attempt retries. |
-| `checkOldIDs` | boolean | `false` | Exactly `true` or `false`. | Allows GameDig to resolve legacy `old_id` values. |
-| `requestRules` | boolean | `false` | Exactly `true` or `false`. | Requests Valve rules when the protocol supports them; returned rules are under `server.raw.rules`. |
-| `requestPlayers` | boolean | `true` | Exactly `true` or `false`. | Enables/disables the Valve player-list request. |
-| `requestRulesRequired` | boolean | `false` | Exactly `true` or `false`. | Makes a requested Valve rules response required instead of tolerating its timeout. |
-| `requestPlayersRequired` | boolean | `false` | Exactly `true` or `false`. | Makes a requested Valve player response required instead of tolerating its timeout. |
-
-The non-sensitive protocol-specific options documented below may also be supplied through GET. The sensitive fields `password`, `token`, `apiKey`, and `telnetPassword` are rejected in a GET URL with `400 InvalidQuery` and must use POST JSON.
-
-Boolean parsing is intentionally strict: values such as `1`, `0`, `yes`, `on`, or `TRUE` are rejected with `400 InvalidQuery`.
-
-`attemptTimeout` must always be greater than `socketTimeout`; invalid timeout relationships are rejected before GameDig is called. This service caps `maxRetries` at `3`, `socketTimeout` at `15000` ms, and `attemptTimeout` at `60000` ms. These are wrapper safety limits rather than GameDig's full theoretical range.
-
-`port` is optional. When it is omitted, GameDig uses the selected game's runtime metadata (`port`, `port_query`, and `port_query_offset`) to build query attempts. With `givenPortOnly=false` it may try the supplied/default/query/offset ports according to its resolver behavior; `givenPortOnly=true` restricts the attempt set to the supplied port. Because this service forces `portCache=false`, no successful query port is reused across requests.
-
-`ipFamily=6` is accepted and forwarded unchanged because `6` is a real GameDig 5.3.3 runtime value. IPv6 egress has not been verified for this Cloudflare Container deployment, so the API does not claim that IPv6 queries will succeed in every deployment. There is no silent IPv4 downgrade. When `address` is supplied, GameDig skips its DNS lookup, so `ipFamily` does not select an address for that request.
-
-### POST `/query` JSON
-
-Use `Content-Type: application/json`. Core query identity stays at the top level and GameDig options go under `options`:
+Core identity fields stay at the top level. GameDig options belong under `options`:
 
 ```json
 {
@@ -98,36 +142,107 @@ Use `Content-Type: application/json`. Core query identity stays at the top level
 }
 ```
 
-The `options` object accepts the same generic options as GET plus the protocol-specific options below. JSON values use their natural runtime types: numbers are JSON numbers and booleans are JSON booleans. Unknown properties are not forwarded into GameDig. The top-level `type` is normalized and validated through the same installed GameDig registries as GET.
+POST uses natural JSON types: booleans are booleans and numbers are numbers. Unknown object properties are not forwarded into GameDig.
 
-Malformed JSON returns `400`. A missing or unsupported content type returns `415`. Invalid option types and invalid game IDs are rejected before GameDig is called.
+Malformed JSON returns `400`. Missing or unsupported content types return `415`.
 
-Credentials are intentionally not accepted in URLs because URLs are routinely recorded by proxies, access logs, browser history, monitoring systems, and caches. Sensitive values are omitted from returned query metadata and wrapper errors/logging. GameDig 5.3.3 debug mode logs its complete options object, so this service automatically disables GameDig debug for any request carrying a sensitive option.
+### Generic GameDig options
+
+These options are exposed by the wrapper in addition to `type`, `host`, and `port`.
+
+| Option | Type | GET | POST | Default | Validation / behaviour |
+| --- | --- | --- | --- | --- | --- |
+| `address` | string | Yes | Yes | unset | Non-empty connection-address override. `host` is still required and remains available to protocols. |
+| `maxRetries` | integer | Yes | Yes | `1` | `0`–`3`. GameDig 5.3.3 itself treats `0` through its runtime fallback behaviour. |
+| `socketTimeout` | integer ms | Yes | Yes | `2000` | `1`–`15000`. Per socket/packet operation. |
+| `attemptTimeout` | integer ms | Yes | Yes | `10000` | `1`–`60000` and must be greater than `socketTimeout`. |
+| `givenPortOnly` | boolean | Yes | Yes | `false` | Restrict GameDig to the supplied port rather than its normal resolved attempt set. |
+| `ipFamily` | `0 \| 4 \| 6` | Yes | Yes | `0` | Passed to GameDig DNS lookup. `0` allows either family. |
+| `debug` | boolean | Yes | Yes | `false` | Enables GameDig debug logging unless the request contains a sensitive option. |
+| `stripColors` | boolean | Yes | Yes | `true` | Controls GameDig colour stripping in protocols that support it. |
+| `noBreadthOrder` | boolean | Yes | Yes | `false` | Uses per-attempt retry ordering instead of breadth-first retry ordering. |
+| `checkOldIDs` | boolean | Yes | Yes | `false` | Allows GameDig legacy `old_id` values to resolve. |
+| `requestRules` | boolean | Yes | Yes | `false` | Requests Valve rules where supported. Returned rules remain under `server.raw.rules`. |
+| `requestPlayers` | boolean | Yes | Yes | `true` | Enables or disables the Valve player-list request. |
+| `requestRulesRequired` | boolean | Yes | Yes | `false` | Makes a requested Valve rules response required. |
+| `requestPlayersRequired` | boolean | Yes | Yes | `false` | Makes a requested Valve player response required. |
+
+The wrapper caps retries and timeouts before calling GameDig. It also forces `portCache=false` on every request so a successful query port from one request is not reused by another.
+
+When `address` is supplied, GameDig skips its own hostname resolution for the connection address. `host` is still preserved because some protocols use the logical host independently.
 
 ### Protocol-specific options
 
-These types and consumers are based on GameDig 5.3.3 runtime protocol code rather than only `@types/gamedig`.
+The following protocol-specific options are part of the current public schema. The protocol/game column describes where GameDig 5.3.3 consumes the field; the API itself validates the field's type, not every protocol-specific combination.
 
-| Protocol/game | Option | Type | Sensitive | Runtime use |
-| --- | --- | --- | --- | --- |
-| Discord | `guildId` | string | No | Discord widget guild identifier; must stay a string because Discord IDs exceed safe JS integer precision. |
-| SCP:SL | `accountId` | string | No | Account id sent to the SCP:SL server-info API. |
-| SCP:SL | `apiKey` | string | **Yes** | SCP:SL API credential. |
-| SCP:SL, alt:V, Broken Protocol, hawakening | `serverId` | string | No | Selects a specific server from the protocol/API result. |
-| Farming Simulator | `token` | string | **Yes** | Dedicated-server stats feed code. |
-| Terraria / TShock | `token` | string | **Yes** | TShock REST API token. |
-| Palworld, hawakening | `username` | string | No | HTTP/backend login username. |
-| Palworld, Nadeo, hawakening | `password` | string | **Yes** | Protocol authentication password. |
-| Teamspeak 2/3 | `teamspeakQueryPort` | integer | No | TCP ServerQuery port; `1`–`65535`. |
-| Nadeo | `login` | string | No | GBXRemote login name. |
-| Satisfactory, hawakening | `token` | string | **Yes** | Existing bearer/access token. |
-| Satisfactory | `rejectUnauthorized` | boolean | No | TLS certificate verification for the HTTPS API. |
-| 7 Days to Die | `telnetPort` | integer | No | Telnet TCP port; `1`–`65535`. |
-| 7 Days to Die | `telnetPassword` | string | **Yes** | Telnet authentication password. |
-| 7 Days to Die | `moreData` | boolean | No | Enables extra telnet-derived time/version/mod data. |
-| Broken Protocol master | `snapshotInterval` | string enum | No | One of `1h`, `6h`, `12h`, `1d`, `3d`, `1w`, `2w`, `4w`. |
+| Option | Type | GET | POST | Sensitive | Protocol / purpose |
+| --- | --- | --- | --- | --- | --- |
+| `guildId` | string | Yes | Yes | No | Discord widget guild ID. Kept as a string to preserve large IDs. |
+| `accountId` | string | Yes | Yes | No | SCP: Secret Laboratory server-info account ID. |
+| `apiKey` | string | **No** | Yes | **Yes** | SCP: Secret Laboratory API credential. |
+| `serverId` | string | Yes | Yes | No | Server selector used by SCP:SL, alt:V, Broken Protocol, and hawakening integrations. |
+| `token` | string | **No** | Yes | **Yes** | Credential used by Farming Simulator, Terraria/TShock, Satisfactory, and hawakening integrations. |
+| `username` | string | Yes | Yes | No | Login username used by Palworld and hawakening integrations. |
+| `password` | string | **No** | Yes | **Yes** | Authentication password used by Palworld, Nadeo, and hawakening integrations. |
+| `teamspeakQueryPort` | integer `1`–`65535` | Yes | Yes | No | TeamSpeak 2/3 ServerQuery TCP port. |
+| `login` | string | Yes | Yes | No | Nadeo GBXRemote login name. |
+| `rejectUnauthorized` | boolean | Yes | Yes | No | Satisfactory HTTPS certificate verification setting. |
+| `telnetPort` | integer `1`–`65535` | Yes | Yes | No | 7 Days to Die telnet port. |
+| `telnetPassword` | string | **No** | Yes | **Yes** | 7 Days to Die telnet authentication password. |
+| `moreData` | boolean | Yes | Yes | No | Enables additional 7 Days to Die telnet-derived data. |
+| `snapshotInterval` | string enum | Yes | Yes | No | Broken Protocol snapshot interval: `1h`, `6h`, `12h`, `1d`, `3d`, `1w`, `2w`, or `4w`. |
 
-Safe credential examples use obvious test-only placeholders:
+### GET vs POST
+
+| Behaviour | GET `/query` | POST `/query` |
+| --- | --- | --- |
+| Core fields | URL query parameters | `type`, `host`, and optional `port` at top level |
+| Extra options | URL query parameters | Nested under `options` |
+| Numbers | Parsed from strings | JSON numbers |
+| Booleans | Exact `true` / `false` strings | JSON booleans |
+| Sensitive options | Rejected with `400 InvalidQuery` | Accepted when valid |
+| Content type | Not applicable | Must be `application/json` |
+| Unknown values | Unknown query parameters are ignored | Unknown schema properties are not forwarded |
+
+Credentials are kept out of URLs because URLs are commonly retained in access logs, proxies, browser history, and monitoring systems. Sensitive values are also omitted from the returned `query` object. Because GameDig debug output can include its full options object, this wrapper forces GameDig `debug` off whenever a request carries `apiKey`, `password`, `telnetPassword`, or `token`.
+
+## Examples
+
+### Basic query
+
+```bash
+curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27015"
+```
+
+### Let GameDig resolve the query port
+
+`port` may be omitted:
+
+```bash
+curl "https://<deployment>/query?type=minecraft&host=mc.hypixel.net"
+```
+
+The wrapper does not invent a port. GameDig receives an omitted `port` and applies the selected game's runtime metadata.
+
+### Generic options
+
+```bash
+curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27015&requestRules=true&requestPlayers=false&socketTimeout=5000&attemptTimeout=15000&maxRetries=2"
+```
+
+### Force an exact port
+
+```bash
+curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27015&givenPortOnly=true"
+```
+
+### Force a GameDig protocol
+
+```bash
+curl "https://<deployment>/query?type=protocol-valve&host=103.212.227.45&port=27015"
+```
+
+### Credential-bearing POST request
 
 ```bash
 curl -X POST "https://<deployment>/query" \
@@ -135,11 +250,7 @@ curl -X POST "https://<deployment>/query" \
   --data '{"type":"palworld","host":"example.com","port":8212,"options":{"username":"admin","password":"TEST_PASSWORD"}}'
 ```
 
-```bash
-curl -X POST "https://<deployment>/query" \
-  -H "content-type: application/json" \
-  --data '{"type":"ssl","host":"example.com","options":{"accountId":"TEST_ACCOUNT","apiKey":"TEST_API_KEY","serverId":"42"}}'
-```
+### Protocol-specific POST options
 
 ```bash
 curl -X POST "https://<deployment>/query" \
@@ -153,104 +264,449 @@ curl -X POST "https://<deployment>/query" \
   --data '{"type":"satisfactory","host":"example.com","port":7777,"options":{"rejectUnauthorized":false,"token":"TEST_TOKEN"}}'
 ```
 
-### Response compatibility
+### Legacy GameDig ID
 
-The stable wrapper server result follows the GameDig 5.3.3 runtime shape. In particular, each player and bot is represented as:
+Legacy `old_id` values are rejected by default. To enable GameDig's legacy-ID behaviour:
+
+```bash
+curl "https://<deployment>/query?type=<legacy-id>&host=example.com&checkOldIDs=true"
+```
+
+### Validation failure
+
+```bash
+curl "https://<deployment>/query?type=definitely-not-a-gamedig-id&host=example.com"
+```
+
+Representative response:
 
 ```json
 {
-  "name": "Player name",
-  "raw": {}
+  "error": {
+    "message": "Invalid type: definitely-not-a-gamedig-id",
+    "type": "InvalidQuery"
+  },
+  "success": false
 }
 ```
 
-Protocol-specific player values such as score, ping, team, address, or other fields belong inside `player.raw`; they are not promoted to stale DefinitelyTyped-style top-level fields. Protocol-specific server data likewise remains in `server.raw`. When Valve rules are requested with `requestRules=true`, the rules object appears at `server.raw.rules` when the server/protocol supplies it.
+## Responses
 
-### Internal GameDig options
+A successful query returns the normalized query metadata and a schema-validated GameDig server result:
 
-The public API does **not** expose these GameDig options:
+```json
+{
+  "query": {
+    "attemptTimeout": 10000,
+    "checkOldIDs": false,
+    "debug": false,
+    "givenPortOnly": false,
+    "host": "103.212.227.45",
+    "ipFamily": 0,
+    "maxRetries": 1,
+    "noBreadthOrder": false,
+    "port": 27015,
+    "requestPlayers": true,
+    "requestPlayersRequired": false,
+    "requestRules": false,
+    "requestRulesRequired": false,
+    "socketTimeout": 2000,
+    "stripColors": true,
+    "type": "counterstrike2"
+  },
+  "server": {
+    "bots": [],
+    "connect": "103.212.227.45:27015",
+    "map": "de_dust2",
+    "maxplayers": 32,
+    "name": "Example Server",
+    "numplayers": 1,
+    "password": false,
+    "ping": 18,
+    "players": [
+      {
+        "name": "Player One",
+        "raw": {
+          "score": 12
+        }
+      }
+    ],
+    "queryPort": 27015,
+    "raw": {},
+    "version": "1.0"
+  },
+  "success": true
+}
+```
 
-- `portCache` — always forced to `false` internally so one request cannot reuse singleton GameDig port-cache state from another request.
-- `listenUdpPort` — constructor-only GameDig configuration and not part of the per-request service API.
+The wrapper's stable server fields are:
 
-Supplying `portCache`, `listenUdpPort`, or another unknown query parameter in the URL or POST options does not forward it to GameDig.
+| Field | Type | Notes |
+| --- | --- | --- |
+| `name` | string | Server name. |
+| `map` | string | Current map or protocol-equivalent value. |
+| `version` | string | Server/game version. |
+| `numplayers` | number | Current player count. GameDig numeric strings are normalized to numbers. |
+| `maxplayers` | number | Maximum player count. GameDig numeric strings are normalized to numbers. |
+| `players` | array | Each entry contains `name` and protocol-specific `raw`. |
+| `bots` | array | Same wrapper shape as players. |
+| `ping` | number | GameDig query round-trip measurement. |
+| `connect` | string | Connection string reported/constructed by GameDig. |
+| `queryPort` | number | Port on which GameDig completed the query. |
+| `password` | boolean | Password-protection state normalized from GameDig output. |
+| `raw` | object | Protocol-specific server data. Its contents vary by protocol and GameDig patch release. |
 
-## Windows (WSL) setup
+Protocol-specific player fields such as score, ping, team, or address remain under `players[].raw`. Protocol-specific server data remains under `server.raw`. The wrapper does not promise a uniform schema inside those `raw` objects.
 
-Alchemy local Container development isn't supported on native Windows, so `bun run dev` must run inside WSL2. Unit tests, direct Bun execution, and Docker work fine on Windows; only the local Container dev flow needs WSL.
+Sensitive request values are never included in the successful response's `query` object.
 
-### Install WSL2 and Ubuntu
+## Errors
 
-In an elevated PowerShell:
+Public API errors use a JSON envelope with `success: false`.
+
+| HTTP status | Error type | When it is returned |
+| --- | --- | --- |
+| `400` | `InvalidQuery` | Missing/invalid fields, invalid option values, invalid timeout relationship, unsupported game/protocol ID, or sensitive option supplied through GET. |
+| `400` | `InvalidJson` | Malformed POST JSON. |
+| `404` | `NotFound` | Unsupported public route or method rejected by the Worker. |
+| `415` | `UnsupportedMediaType` | `POST /query` without `Content-Type: application/json`. |
+| `502` | `GameDigResponseError` | GameDig returned a result that failed the wrapper's response schema. |
+| `504` | `GameDigQueryError` | GameDig failed while trying to query the target server. |
+
+Representative GameDig failure:
+
+```json
+{
+  "elapsedMs": 10012,
+  "error": {
+    "message": "GameDig query failed",
+    "type": "GameDigQueryError"
+  },
+  "query": {
+    "givenPortOnly": false,
+    "host": "example.com",
+    "port": 27015,
+    "type": "counterstrike2"
+  },
+  "stage": "gamedig",
+  "success": false
+}
+```
+
+Internal failure causes are not exposed in this response.
+
+## GameDig compatibility
+
+GameDig `5.3.3` is the runtime source of truth for this project. The installed `@types/gamedig@5.0.3` declarations are older and are not treated as authoritative where runtime behaviour differs.
+
+This service intentionally exposes a controlled compatibility surface rather than forwarding arbitrary objects directly into GameDig.
+
+| Compatibility area | Current support |
+| --- | --- |
+| Current game IDs | Validated directly against the installed GameDig `games` registry. |
+| Legacy `old_id` values | Rejected by default; accepted when `checkOldIDs=true`. |
+| `protocol-*` forcing | Supported only for protocols exported by the installed GameDig runtime. |
+| Game defaults | Delegated to GameDig when `port` is omitted. |
+| `port_query` | Delegated to GameDig's runtime resolver. |
+| `port_query_offset` | Supplied ports are preserved so GameDig can apply protocol/game offsets. |
+| `givenPortOnly` | Exposed with wrapper default `false`. |
+| `portCache` | Intentionally forced to `false`; not publicly configurable. |
+| `listenUdpPort` | Not exposed by the per-request API. |
+| Generic query options | The allow-listed options in this README are forwarded with validated runtime types. |
+| Protocol-specific options | The allow-listed protocol fields in this README are forwarded with validated runtime types. |
+| Result shape | Stable GameDig result fields are schema validated; protocol-specific data is retained under `raw`. |
+| Unknown options | Not forwarded. |
+| Wrapper request shape | HTTP-specific: GET query strings or POST `{ type, host, port?, options? }`, not a raw `GameDig.query()` object. |
+
+### Supported games
+
+The repository does not maintain a second hard-coded copy of GameDig's hundreds of game IDs. At runtime, `type` is checked against the registries exported by the installed `gamedig@5.3.3` package.
+
+Useful references:
+
+- [GameDig games list](https://github.com/gamedig/node-gamedig/blob/master/GAMES_LIST.md)
+- [GameDig ID migration guide](https://github.com/gamedig/node-gamedig/blob/master/MIGRATE_IDS.md)
+- [GameDig 5.3.3 on npm](https://www.npmjs.com/package/gamedig/v/5.3.3)
+
+The installed registry is authoritative for this service even if upstream documentation changes after this repository's pinned version.
+
+### Compatibility limits
+
+This is not a claim of complete one-for-one `GameDig.query()` compatibility.
+
+Current intentional or structural differences include:
+
+- `host` is required by the HTTP schema for every request;
+- only documented, allow-listed options are accepted;
+- credential-bearing fields must use POST JSON;
+- `portCache` is always disabled;
+- `listenUdpPort` is not exposed;
+- POST uses a wrapper-specific nested `options` object;
+- GameDig results are validated and normalized before being returned;
+- the service does not expose separate `/games`, `/protocols`, or metadata routes.
+
+## Development
+
+This is an existing Bun/TypeScript/Effect project. Normal editing, dependency installation, type checking, lint/format verification, and unit tests do not require Cloudflare deployment.
+
+### Requirements
+
+| Requirement | Used for |
+| --- | --- |
+| [Bun](https://bun.sh/) | Package management, scripts, tests, and Container runtime. CI and the Docker image use Bun `1.3.14`. |
+| Git | Repository workflow. |
+| Docker-compatible CLI and engine | Full local Container development and `docker build .`. |
+| Cloudflare account | Deployment only. |
+| Alchemy | Installed as a dev dependency; provisions the Worker and Container. |
+
+### Clone and install
+
+```bash
+git clone https://github.com/mynameistito/cf-gamedig.git
+cd cf-gamedig
+bun install
+```
+
+### Development commands
+
+| Command | Description |
+| --- | --- |
+| `bun run dev` | Start Alchemy local development for the Worker + Container stack. |
+| `bun run start` | Run the Bun Container HTTP service directly. |
+| `bun run typecheck` | Run TypeScript with `--noEmit`. |
+| `bun test` | Run the Bun test suite. |
+| `bun run check` | Run Ultracite checks. |
+| `bun run fix` | Apply Ultracite fixes. |
+| `bun run deploy` | Deploy the Alchemy stack. |
+| `bun run destroy` | Destroy the Alchemy stack for the selected profile/stage. |
+
+### Local development
+
+With dependencies and a Docker-compatible engine available:
+
+```bash
+bun run dev
+```
+
+Alchemy builds/runs the Container locally and starts the Worker development runtime. Use the URL printed by Alchemy; the default local Worker URL is typically `http://localhost:1337`.
+
+For work that does not require the Worker-to-Container path, the Container HTTP server can also be started directly:
+
+```bash
+bun run start
+```
+
+It listens on `PORT`, defaulting to `8080`.
+
+### Windows
+
+Repository tooling can be run natively from PowerShell:
 
 ```powershell
-wsl --install -d Ubuntu
-```
-
-Restart when prompted, then finish the distro setup when it first launches (Linux username and password).
-
-### Install the tools
-
-```bash
-# bun
-curl -fsSL https://bun.sh/install | bash
-source ~/.bashrc
-
-# git
-sudo apt update
-sudo apt install -y git
-
-# docker (optional, only needed for the local Docker control)
-sudo apt install -y docker.io
-sudo usermod -aG docker "$USER"
-```
-
-Log out and back in (or restart the distro) so the `docker` group takes effect. Verify with `bun --version` and `git --version`.
-
-### Clone and run
-
-Keep the repo on the Linux filesystem (`~/`), not `/mnt/c/`:
-
-```bash
-git clone git@github.com:mynameistito/cf-gamedig-container.git
-cd cf-gamedig-container
-bun install
-bun run dev
-```
-
-## Commands
-
-```bash
 bun install
 bun run typecheck
-bun test
 bun run check
-bun run dev
-bun run deploy
-bun run destroy
+bun test
+docker build .
 ```
 
-Select the Cloudflare account explicitly before deployment:
+For `bun run dev`, start with native Windows if your Docker-compatible engine is correctly configured. Cloudflare Container local development requires a working Docker CLI/engine; it is not necessary to move the entire development workflow into WSL just to edit, install, typecheck, lint, or test the project.
+
+### WSL 2 fallback
+
+If the full local Worker + Container development path is unreliable in a particular Windows/Docker setup, WSL 2 is a practical fallback for `bun run dev`.
+
+A Windows checkout can be reached from WSL through a path such as:
+
+```text
+/mnt/c/Users/<user>/code/cf-gamedig
+```
+
+For heavier Linux-side filesystem workloads, keeping the active clone inside the WSL filesystem (for example `~/code/cf-gamedig`) can also avoid `/mnt/c` filesystem overhead.
+
+Inside WSL, with Bun, Git, and a Docker-compatible engine available:
+
+```bash
+cd ~/code/cf-gamedig
+bun install
+bun run dev
+```
+
+WSL is a local-development fallback, not a deployment requirement.
+
+## Testing
+
+The test suite covers query parsing, GameDig option forwarding, game/protocol ID validation, protocol-specific options, response schema compatibility, transport behaviour, credential redaction, and error handling.
+
+Before submitting a change, run:
+
+```bash
+bun install --frozen-lockfile
+bun run typecheck
+bun run check
+bun test
+docker build .
+```
+
+The repository's `Verify` GitHub Actions workflow runs the same verification categories on pull requests to `main` using Bun `1.3.14`:
+
+1. frozen dependency install;
+2. typecheck;
+3. Ultracite check;
+4. tests;
+5. Docker image build.
+
+## Deployment
+
+Alchemy provisions both Cloudflare resources from `alchemy.run.ts`; there is no separate hand-written Wrangler configuration in this repository.
+
+### Authenticate
+
+Alchemy profiles select the Cloudflare credentials/account used by a command.
+
+To configure a named profile:
 
 ```bash
 bun alchemy login --profile <profile> --configure
+```
+
+The default Alchemy profile is `default` when `--profile` is omitted.
+
+### Deploy to Cloudflare
+
+```bash
 bun run deploy --profile <profile>
 ```
 
-Check logs after deploying:
+Alchemy shows the deployment plan and returns the Worker URL when the stack is ready.
+
+To remove the deployed stack:
 
 ```bash
-bun alchemy logs --profile <profile> --filter cf-gamedig-worker --since 30m --limit 100
-bun alchemy logs --profile <profile> --filter cf-gamedig-container --since 30m --limit 100
+bun run destroy --profile <profile>
 ```
 
-## Notes
+### Fully Cloudflare-hosted service
 
-- Alchemy's container stack pins Effect 4 prerelease tooling, and the app uses the same Effect 4 RC; only Effect and GameDig are installed in the runtime image.
-- GameDig 5.3.3 runtime behavior is authoritative for this wrapper when its behavior differs from the installed `@types/gamedig@5.0.3` declarations.
+```mermaid
+flowchart LR
+    Internet["Internet client"]
+    Worker["Cloudflare Worker"]
+    Container["Cloudflare Container<br/>GameDig + Bun"]
+    Target["External game / voice server"]
 
-## Documentation
+    Internet -->|HTTPS| Worker
+    Worker -->|Container binding| Container
+    Container -->|query protocol| Target
+```
 
-- [Alchemy Containers](https://alchemy.run/cloudflare/compute/containers)
-- [Cloudflare Containers](https://developers.cloudflare.com/containers/)
+The service-side compute is Cloudflare-hosted:
+
+| Resource | Current configuration |
+| --- | --- |
+| Worker | `cf-gamedig-worker`, `nodejs_compat`, observability enabled |
+| Container | `cf-gamedig-container`, `lite`, `instances: 0`, `maxInstances: 1` |
+| Container runtime | Bun image built from this repository's `Dockerfile` |
+| Worker → Container | `CONTAINER` binding, routed with `getContainer(...)` |
+| Container egress | Enabled so GameDig can contact remote servers |
+| Provisioning | Alchemy |
+
+The target game server is not part of the Cloudflare deployment. The Container queries whatever remote server the API request identifies.
+
+## Configuration
+
+There are no application-wide game-server credentials or hard-coded Cloudflare account IDs in the repository.
+
+| Setting | Required | Default / source | Description |
+| --- | --- | --- | --- |
+| Alchemy profile | Deployment only | `default` | Selects stored Cloudflare authentication/account context. |
+| Cloudflare credentials | Deployment only | Configured by Alchemy login | OAuth or another Cloudflare credential method supported by Alchemy. |
+| `PORT` | Container runtime | `8080` | Port used by the Bun Container HTTP server. |
+| Query credentials | Per request only | unset | Sent through `POST /query` options when a specific GameDig protocol requires them. |
+
+`alchemy.run.ts` currently uses Alchemy `localState()`. Deployment state therefore lives in the local Alchemy state store used by the machine running the stack rather than a shared repository-backed state store.
+
+## Security
+
+The repository includes several request-boundary protections:
+
+- external inputs are decoded through Effect Schema rather than spread directly into GameDig;
+- game/protocol IDs are validated before the GameDig network call;
+- retries and timeouts are capped;
+- credential fields are rejected in GET URLs;
+- successful responses omit `apiKey`, `password`, `telnetPassword`, and `token`;
+- GameDig debug mode is forced off for credential-bearing requests;
+- Container JSON responses use `Cache-Control: no-store`;
+- `portCache` is disabled to avoid sharing GameDig's singleton port-cache state across requests.
+
+There are also important deployment considerations:
+
+- there is no authentication or authorization layer in this repository;
+- there is no built-in rate limiter;
+- `host` and optional `address` are not restricted to an allow-list;
+- there is no private/reserved-address block in the request parser;
+- the Container has outbound internet access;
+- a public deployment can therefore be asked to initiate GameDig-supported network traffic toward arbitrary destinations reachable from the Container.
+
+If the Worker is exposed to untrusted callers, add any required authentication, rate limiting, and destination policy at the deployment/application boundary before treating it as a general public query proxy.
+
+POST keeps credentials out of the URL, but credentials still necessarily exist in the request body and in process memory while the selected GameDig protocol uses them.
+
+## Limitations
+
+- Cloudflare Container IPv6 egress has not been verified by this repository. `ipFamily=6` is accepted and forwarded without silently downgrading to IPv4.
+- Some GameDig protocols require protocol-specific server configuration or options beyond a basic host/port.
+- GameDig `raw` data is intentionally protocol-specific and may change between GameDig patch releases.
+- `maxInstances` is currently `1`, so this stack is configured as a small service rather than a horizontally scaled public query fleet.
+- Local Container development requires a working Docker-compatible engine.
+- Alchemy state is currently local to the deployment environment.
+- The HTTP wrapper exposes a deliberate subset of GameDig options rather than arbitrary passthrough.
+
+## Project structure
+
+```text
+.
+├── .github/workflows/verify.yml   # Pull-request verification
+├── src/
+│   ├── worker/
+│   │   └── index.ts               # Public Worker router and Container binding
+│   └── container/
+│       ├── index.ts               # Bun server bootstrap
+│       ├── server.ts              # HTTP routes and response mapping
+│       ├── query-params.ts        # GET/POST schemas, defaults, limits, redaction
+│       ├── game-type.ts           # GameDig game/protocol ID validation
+│       └── gamedig/
+│           ├── service.ts         # Effect service around GameDig.query()
+│           ├── schema.ts          # Runtime response validation
+│           └── errors.ts          # Typed GameDig failure model
+├── test/                          # Bun test suite
+├── alchemy.run.ts                 # Cloudflare Worker + Container resources
+├── Dockerfile                     # Production Container image
+└── package.json                   # Scripts and pinned dependencies
+```
+
+## Contributing
+
+Keep changes focused and run the repository verification commands before opening a pull request:
+
+```bash
+bun run typecheck
+bun run check
+bun test
+docker build .
+```
+
+When changing API behaviour, update the relevant schemas/tests and keep this README synchronized with the actual public surface.
+
+## License
+
+[MIT](LICENSE).
+
+## References
+
 - [GameDig](https://github.com/gamedig/node-gamedig)
+- [GameDig 5.3.3 package](https://www.npmjs.com/package/gamedig/v/5.3.3)
+- [Cloudflare Containers](https://developers.cloudflare.com/containers/)
+- [Cloudflare Containers local development](https://developers.cloudflare.com/containers/local-dev/)
+- [Alchemy Containers](https://alchemy.run/cloudflare/compute/containers)
+- [Alchemy profiles](https://alchemy.run/environments/profiles/)
