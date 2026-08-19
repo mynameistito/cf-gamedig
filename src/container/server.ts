@@ -96,7 +96,7 @@ const readBodyChunks = async (
 > => {
   const chunk = await readBodyChunk(reader);
   if (Result.isFailure(chunk)) {
-    return chunk;
+    return Result.fail(chunk.failure);
   }
 
   if (chunk.success.done) {
