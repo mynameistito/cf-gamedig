@@ -74,7 +74,9 @@ const parseJson = (text: string): Result.Result<unknown, InvalidJsonError> => {
   }
 };
 
-const readBodyChunk = async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
+const readBodyChunk = async (
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) => {
   try {
     return Result.succeed(await reader.read());
   } catch {
