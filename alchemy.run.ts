@@ -1,11 +1,15 @@
-import * as Alchemy from "alchemy";
-import * as Cloudflare from "alchemy/Cloudflare";
-import * as Effect from "effect/Effect";
+import { Stack, localState } from "alchemy";
+import {
+  Container,
+  Worker as WorkerResource,
+  providers,
+} from "alchemy/Cloudflare";
+import { gen } from "effect/Effect";
 
 import type { GameDigContainer as GameDigContainerClass } from "./src/worker/index.ts";
 
 /** Container application built from the repository Dockerfile. */
-const GameDigContainer = Cloudflare.Container<GameDigContainerClass>(
+const GameDigContainer = Container<GameDigContainerClass>(
   "cf-gamedig-container",
   {
     className: "GameDigContainer",
@@ -19,7 +23,7 @@ const GameDigContainer = Cloudflare.Container<GameDigContainerClass>(
 );
 
 /** Public edge Worker and its Container/config bindings. */
-export const Worker = Cloudflare.Worker("cf-gamedig-worker", {
+export const Worker = WorkerResource("cf-gamedig-worker", {
   compatibility: {
     date: "2026-07-11",
     flags: ["nodejs_compat"],
@@ -31,13 +35,13 @@ export const Worker = Cloudflare.Worker("cf-gamedig-worker", {
   observability: { enabled: true },
 });
 
-export default Alchemy.Stack(
+export default Stack(
   "cf-gamedig-container",
   {
-    providers: Cloudflare.providers(),
-    state: Alchemy.localState(),
+    providers: providers(),
+    state: localState(),
   },
-  Effect.gen(function* () {
+  gen(function* runStack() {
     const worker = yield* Worker;
     return { url: worker.url };
   })
