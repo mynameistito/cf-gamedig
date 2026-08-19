@@ -16,6 +16,13 @@ const REQUEST_ID_PATTERN =
 const TEST_AUTH_TOKEN = ["TEST", "AUTH", "TOKEN"].join("_");
 const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
 
+interface ObservedQuery {
+  readonly host: string;
+  readonly port: number | undefined;
+  readonly requestId: string | undefined;
+  readonly type: string;
+}
+
 const ALLOWING_RATE_LIMIT: NonNullable<WorkerProtection["rateLimit"]> = {
   limit: () => Promise.resolve({ success: true }),
 };
@@ -43,7 +50,7 @@ describe("request correlation", () => {
   test("Worker generates an authoritative request ID and propagates it", async () => {
     const callerId = "11111111-1111-4111-8111-111111111111";
     const forwardedRequests: Request[] = [];
-    const completions: Array<{ readonly requestId?: string }> = [];
+    const completions: { readonly requestId?: string }[] = [];
 
     const response = await handleWorkerRequest(
       new Request("https://api.example.com/health", {
@@ -108,19 +115,12 @@ describe("request correlation", () => {
 
   test("Container request context and responses retain the same request ID", async () => {
     const requestId = createRequestId();
-    const calls: Array<{
-      readonly host: string;
-      readonly port?: number;
-      readonly requestId?: string;
-      readonly type: string;
-    }> = [];
+    const calls: ObservedQuery[] = [];
     const handler = makeRequestHandler((query, context) => {
       calls.push({
         host: query.host,
-        ...(query.port === undefined ? {} : { port: query.port }),
-        ...(context.requestId === undefined
-          ? {}
-          : { requestId: context.requestId }),
+        port: query.port,
+        requestId: context.requestId,
         type: query.type,
       });
       return Response.json({ success: true });
