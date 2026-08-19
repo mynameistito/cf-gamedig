@@ -2,36 +2,26 @@
 
 Template / demo for running [GameDig](https://github.com/gamedig/node-gamedig) on Cloudflare.
 
-GameDig queries game servers over UDP (e.g. Valve A2S), and Cloudflare Workers do not support arbitrary outbound UDP sockets. Cloudflare **Containers** allow non-HTTP egress, so the GameDig (and raw A2S) logic runs inside a Container that is exposed through a Worker router.
+GameDig queries game servers over UDP (e.g. Valve A2S), and Cloudflare Workers do not support arbitrary outbound UDP sockets. Cloudflare **Containers** allow non-HTTP egress, so the GameDig logic runs inside a Container that is exposed through a Worker router.
 
 ```text
 Client ──HTTPS──▶ Cloudflare Worker (edge router) ──internal HTTP──▶ Container
-                                                                      │
-                                                                      ├─ node:dgram raw A2S_INFO
-                                                                      └─ GameDig
-                                                                           │ UDP
-                                                                           ▼
-                                                                   <game server>:27015
+                                                                      │ UDP
+                                                                      ▼
+                                                              <game server>:27015
 ```
 
 ## Architecture
 
-- `src/worker/index.ts` — edge router that forwards `/health`, `/raw-a2s`, and `/query` to the Container. Also declares the Container binding, `enableInternet = true`, and `sleepAfter = "1m"` (scale-to-zero).
+- `src/worker/index.ts` — edge router that forwards `/health` and `/query` to the Container. Also declares the Container binding, `enableInternet = true`, and `sleepAfter = "1m"` (scale-to-zero).
 - `src/container/server.ts` — the Container's HTTP API. Validates request params and translates requests into Effect programs.
 - `src/container/query.ts` — parses and validates `?type=&host=&port=` for the `/query` route.
-- `src/container/a2s/` — raw `node:dgram` A2S_INFO query service (bind/send/receive, challenge handling, parsing, timeouts) as a control against which GameDig's result can be compared.
 - `src/container/gamedig/` — GameDig query service with a normalized, schema-validated response.
 - `src/shared/` — shared schemas and error-to-HTTP mapping.
 
 ## Configuration
 
-`/query` is fully parameterized by the caller. The remaining env vars are read once by `AppConfig` and used only by `/raw-a2s`:
-
-| Variable      | Default          | Description                   |
-| ------------- | ---------------- | ----------------------------- |
-| `CS2_HOST`    | `103.212.227.45` | Raw A2S target host           |
-| `CS2_PORT`    | `27015`          | Raw A2S target port           |
-| `A2S_TIMEOUT` | `5000`           | Query timeout in milliseconds |
+`/query` is fully parameterized by the caller, so no environment configuration is required.
 
 ## Endpoints
 
@@ -39,7 +29,6 @@ Client ──HTTPS──▶ Cloudflare Worker (edge router) ──internal HTTP�
 | --- | --- |
 | `/health` | Liveness check. |
 | `/query?type=<game>&host=<host>&port=<port>` | GameDig query against an arbitrary server. `type` is a GameDig game id (e.g. `counterstrike2`, `minecraft`); `host` and `port` select the server. Returns a normalized server state. |
-| `/raw-a2s` | Raw `node:dgram` A2S_INFO query against the configured target, returns full packet diagnostics. |
 
 Example:
 
@@ -79,7 +68,6 @@ After a successful deploy, use the URL printed by Alchemy:
 ```bash
 curl https://<deployment>/health
 curl "https://<deployment>/query?type=counterstrike2&host=103.212.227.45&port=27015"
-curl https://<deployment>/raw-a2s
 ALCHEMY_PROFILE=<profile> bun alchemy logs --filter KzgGameDigPoc --since 30m --limit 100
 ALCHEMY_PROFILE=<profile> bun alchemy logs --filter KzgContainer --since 30m --limit 100
 ```
@@ -90,7 +78,6 @@ Optional local Docker control (Linux image):
 docker build -t cf-gamedig-container .
 docker run --rm -p 8080:8080 cf-gamedig-container
 curl "http://localhost:8080/query?type=counterstrike2&host=103.212.227.45&port=27015"
-curl http://localhost:8080/raw-a2s
 ```
 
 ## Notes

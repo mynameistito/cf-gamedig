@@ -16,24 +16,3 @@ export const GameServerStatusSchema = Schema.Struct({
 
 /** Normalized GameDig result exposed by the HTTP API. */
 export type GameServerStatus = typeof GameServerStatusSchema.Type;
-
-/** Parsed subset of a Valve A2S_INFO response. */
-export const A2SInfoSchema = Schema.Struct({
-  appId: Schema.Number,
-  bots: Schema.Number,
-  environment: Schema.String,
-  folder: Schema.String,
-  game: Schema.String,
-  map: Schema.String,
-  maxPlayers: Schema.Number,
-  name: Schema.String,
-  players: Schema.Number,
-  protocol: Schema.Number,
-  serverType: Schema.String,
-  vac: Schema.Number,
-  version: Schema.String,
-  visibility: Schema.Number,
-});
-
-/** Parsed subset of a Valve A2S_INFO response. */
-export type A2SInfo = typeof A2SInfoSchema.Type;

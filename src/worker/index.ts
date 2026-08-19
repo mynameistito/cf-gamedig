@@ -3,26 +3,15 @@ import type * as Cloudflare from "alchemy/Cloudflare";
 
 import type { Worker } from "../../alchemy.run.ts";
 
-interface ContainerEnvironment {
-  readonly CS2_HOST: string;
-  readonly CS2_PORT: string;
-  readonly A2S_TIMEOUT: string;
-}
-
 /** Container-backed Durable Object that owns the POC process lifecycle. */
-export class KzgContainer extends Container<ContainerEnvironment> {
+export class KzgContainer extends Container {
   override defaultPort = 8080;
   override requiredPorts = [8080];
   override sleepAfter = "1m";
   override enableInternet = true;
-  override envVars = {
-    A2S_TIMEOUT: this.env.A2S_TIMEOUT,
-    CS2_HOST: this.env.CS2_HOST,
-    CS2_PORT: this.env.CS2_PORT,
-  };
 }
 
-const routes = new Set(["/health", "/raw-a2s", "/query"]);
+const routes = new Set(["/health", "/query"]);
 
 export default {
   fetch(
@@ -35,7 +24,7 @@ export default {
         Response.json(
           {
             error: {
-              message: "Supported routes: /health, /raw-a2s, /query",
+              message: "Supported routes: /health, /query",
               type: "NotFound",
             },
             success: false,
