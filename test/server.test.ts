@@ -253,7 +253,7 @@ describe("/query transport", () => {
             telnetPassword: TEST_CREDENTIAL,
             telnetPort: 8081,
           },
-          type: "7daystodie",
+          type: "sdtd",
         },
       ],
       [
