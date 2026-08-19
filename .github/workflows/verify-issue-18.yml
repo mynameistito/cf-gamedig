@@ -35,6 +35,12 @@ jobs:
       - name: Check
         run: bun run check
 
+      - name: Show formatting diff
+        if: failure()
+        run: |
+          bun run fix
+          git diff -- src/container/query-params.ts test/query-params.test.ts
+
       - name: Test
         run: bun test
 
