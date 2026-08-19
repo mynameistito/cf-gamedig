@@ -74,7 +74,8 @@ const runQuery = (query: QueryParams): Promise<Response> =>
     )
   );
 
-export const makeRequestHandler = (executeQuery: ExecuteQuery) =>
+export const makeRequestHandler =
+  (executeQuery: ExecuteQuery) =>
   async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
 
@@ -97,7 +98,9 @@ export const makeRequestHandler = (executeQuery: ExecuteQuery) =>
       }
       case "/query": {
         if (request.method === "GET") {
-          const sensitiveParameter = findSensitiveQueryParameter(url.searchParams);
+          const sensitiveParameter = findSensitiveQueryParameter(
+            url.searchParams
+          );
           if (sensitiveParameter !== undefined) {
             return invalidQueryResponse(
               `Sensitive option ${sensitiveParameter} must be sent with POST /query JSON`
@@ -106,7 +109,10 @@ export const makeRequestHandler = (executeQuery: ExecuteQuery) =>
 
           const query = parseQueryParams(url.searchParams);
           if (Result.isFailure(query)) {
-            return invalidQueryResponse(query.failure.message, query.failure._tag);
+            return invalidQueryResponse(
+              query.failure.message,
+              query.failure._tag
+            );
           }
           return executeQuery(query.success);
         }
@@ -138,7 +144,10 @@ export const makeRequestHandler = (executeQuery: ExecuteQuery) =>
 
         const query = parsePostQuery(postRequest.success);
         if (Result.isFailure(query)) {
-          return invalidQueryResponse(query.failure.message, query.failure._tag);
+          return invalidQueryResponse(
+            query.failure.message,
+            query.failure._tag
+          );
         }
         return executeQuery(query.success);
       }
