@@ -21,7 +21,7 @@ const runQuery = (query: QueryParams): Promise<Response> =>
     }).pipe(
       Effect.match({
         onFailure: (error) => {
-          const status = error._tag === "GameDigResponseError" ? 502 : 504;
+          const status = error.kind === "response" ? 502 : 504;
           return respondJson(mapGameDigError(error), status);
         },
         onSuccess: (server) => respondJson({ query, server, success: true }),
