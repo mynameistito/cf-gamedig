@@ -11,10 +11,7 @@ export class GameDigContainer extends Container {
 }
 
 type ForwardRequest = (request: Request) => Response | Promise<Response>;
-type WorkerErrorType =
-  | "ContainerUnavailable"
-  | "MethodNotAllowed"
-  | "NotFound";
+type WorkerErrorType = "ContainerUnavailable" | "MethodNotAllowed" | "NotFound";
 
 const errorResponse = (
   message: string,
