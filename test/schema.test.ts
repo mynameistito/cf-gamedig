@@ -2,10 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { Schema } from "effect";
 
-import {
-  GameDigResultSchema,
-  type GameDigResult,
-} from "../src/container/gamedig/schema.ts";
+import type { GameDigResult } from "../src/container/gamedig/schema.ts";
+import { GameDigResultSchema } from "../src/container/gamedig/schema.ts";
 
 const valveRaw = {
   appId: 730,
