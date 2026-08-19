@@ -13,7 +13,7 @@ const parse = (search: string) =>
 const parseOk = (search: string): QueryParams => {
   const result = parse(search);
   if (Result.isFailure(result)) {
-    throw new Error(`Expected parse to succeed, got: ${result.failure}`);
+    throw new Error(`Expected parse to succeed, got: ${result.failure.message}`);
   }
   return result.success;
 };
@@ -23,7 +23,8 @@ const parseError = (search: string): string => {
   if (Result.isSuccess(result)) {
     throw new Error("Expected parse to fail");
   }
-  return result.failure;
+  expect(result.failure._tag).toBe("InvalidQuery");
+  return result.failure.message;
 };
 
 describe("parseQueryParams", () => {
