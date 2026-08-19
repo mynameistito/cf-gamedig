@@ -4,6 +4,13 @@ Template / demo for running [GameDig](https://github.com/gamedig/node-gamedig) o
 
 GameDig queries game servers over UDP, which Cloudflare Workers can't do directly. Cloudflare **Containers** allow non-HTTP egress, so the GameDig logic runs inside a Container exposed through a Worker router.
 
+```text
+Client ──HTTPS──▶ Cloudflare Worker (edge router) ──internal HTTP──▶ Container
+                                                                      │ UDP
+                                                                      ▼
+                                                              <game server>:27015
+```
+
 ## Architecture
 
 - `src/worker/index.ts` — edge router forwarding `/health` and `/query` to the Container.
