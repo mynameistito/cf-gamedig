@@ -144,7 +144,7 @@ curl -X POST "https://<deployment>/query" \
 ```bash
 curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
-  --data '{"type":"7daystodie","host":"example.com","options":{"telnetPort":8081,"telnetPassword":"TEST_TELNET_PASSWORD","moreData":true}}'
+  --data '{"type":"sdtd","host":"example.com","options":{"telnetPort":8081,"telnetPassword":"TEST_TELNET_PASSWORD","moreData":true}}'
 ```
 
 ```bash
