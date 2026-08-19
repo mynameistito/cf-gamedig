@@ -1,24 +1,24 @@
 import { disposeRuntime, handleRequest } from "./server.ts";
 
-const port = Math.trunc(Number(process.env.PORT ?? "8080"));
+const listenPort = Math.trunc(Number(process.env.PORT ?? "8080"));
 
-const server = Bun.serve({
+const httpServer = Bun.serve({
   fetch: handleRequest,
   hostname: "0.0.0.0",
-  port,
+  port: listenPort,
 });
 
 console.info(
   JSON.stringify({
     event: "container_http_listening",
-    hostname: server.hostname,
-    port: server.port,
+    hostname: httpServer.hostname,
+    port: httpServer.port,
   })
 );
 
 const shutdown = async (): Promise<void> => {
   await disposeRuntime();
-  await server.stop();
+  await httpServer.stop();
 };
 
 process.once("SIGTERM", shutdown);

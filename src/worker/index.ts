@@ -3,7 +3,6 @@ import type { InferEnv } from "alchemy/Cloudflare";
 
 import type { Worker } from "../../alchemy.run.ts";
 
-/** Container-backed Durable Object that owns the process lifecycle. */
 export class GameDigContainer extends Container {
   override defaultPort = 8080;
   override requiredPorts = [8080];
@@ -11,7 +10,7 @@ export class GameDigContainer extends Container {
   override enableInternet = true;
 }
 
-const routes = new Set(["/health", "/query"]);
+const allowedPaths = new Set(["/health", "/query"]);
 
 export default {
   fetch(
@@ -19,7 +18,7 @@ export default {
     env: InferEnv<typeof Worker>
   ): Response | Promise<Response> {
     const url = new URL(request.url);
-    if (request.method !== "GET" || !routes.has(url.pathname)) {
+    if (request.method !== "GET" || !allowedPaths.has(url.pathname)) {
       return Response.json(
         {
           error: {

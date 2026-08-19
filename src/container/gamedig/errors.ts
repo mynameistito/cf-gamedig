@@ -1,38 +1,39 @@
-import type { GameDigQueryError } from "./query-error.ts";
-import type { GameDigResponseError } from "./response-error.ts";
+import { Schema } from "effect";
 
-/** Payload shared by all GameDig adapter failures. */
-export interface GameDigErrorFields {
-  readonly type: string;
-  readonly host: string;
-  readonly port: number;
-  readonly message: string;
+const taggedError = Schema.TaggedError;
+
+export class GameDigError extends taggedError<GameDigError>()("GameDigError", {
+  cause: Schema.Unknown,
+  elapsedMs: Schema.Number,
+  host: Schema.String,
+  kind: Schema.Literals(["query", "response"]),
+  message: Schema.String,
+  port: Schema.Number,
+  type: Schema.String,
+}) {}
+
+interface GameDigErrorResponse {
   readonly elapsedMs: number;
-}
-
-/** All expected failures produced by the GameDig adapter. */
-export type GameDigError = GameDigQueryError | GameDigResponseError;
-
-/** Public JSON shape returned for an expected application failure. */
-export interface ErrorResponseBody {
-  readonly success: false;
-  readonly stage: "gamedig";
   readonly error: {
-    readonly type: string;
     readonly message: string;
+    readonly type: "GameDigQueryError" | "GameDigResponseError";
   };
-  readonly elapsedMs?: number;
-  readonly query?: {
-    readonly type: string;
+  readonly query: {
     readonly host: string;
     readonly port: number;
+    readonly type: string;
   };
+  readonly stage: "gamedig";
+  readonly success: false;
 }
 
-/** Convert a typed GameDig failure to its safe HTTP representation. */
-export const mapGameDigError = (error: GameDigError): ErrorResponseBody => ({
+export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => ({
   elapsedMs: error.elapsedMs,
-  error: { message: error.message, type: error._tag },
+  error: {
+    message: error.message,
+    type:
+      error.kind === "response" ? "GameDigResponseError" : "GameDigQueryError",
+  },
   query: { host: error.host, port: error.port, type: error.type },
   stage: "gamedig",
   success: false,

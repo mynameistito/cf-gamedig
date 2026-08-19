@@ -1,6 +1,12 @@
 import { Result, Schema } from "effect";
 
 const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
+const taggedError = Schema.TaggedError;
+
+class InvalidQueryError extends taggedError<InvalidQueryError>()(
+  "InvalidQuery",
+  { message: Schema.String }
+) {}
 
 const requiredString = (message: string) =>
   Schema.String.pipe(
@@ -15,8 +21,7 @@ const PortSchema = Schema.NumberFromString.pipe(
   )
 );
 
-/** Validated parameters for the GameDig `/query` route. */
-export const QueryParamsSchema = Schema.Struct({
+const QueryParamsSchema = Schema.Struct({
   host: requiredString("Missing required parameter: host"),
   port: PortSchema,
   type: requiredString("Missing required parameter: type"),
@@ -24,17 +29,20 @@ export const QueryParamsSchema = Schema.Struct({
 
 export type QueryParams = typeof QueryParamsSchema.Type;
 
-/** Parse and validate `?type=&host=&port=` for the `/query` route. */
 export const parseQueryParams = (
   searchParams: URLSearchParams
-): Result.Result<QueryParams, string> => {
-  const raw = {
+): Result.Result<QueryParams, InvalidQueryError> => {
+  const input = {
     host: searchParams.get("host")?.trim() ?? "",
     port: searchParams.get("port")?.trim() ?? "",
     type: searchParams.get("type")?.trim() ?? "",
   };
+
   return Result.mapError(
-    Schema.decodeUnknownResult(QueryParamsSchema)(raw),
-    (failure) => failure.message?.split("\n")[0] ?? "Invalid query"
+    Schema.decodeUnknownResult(QueryParamsSchema)(input),
+    (failure) =>
+      new InvalidQueryError({
+        message: failure.message?.split("\n")[0] ?? "Invalid query",
+      })
   );
 };
