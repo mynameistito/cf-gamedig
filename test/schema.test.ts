@@ -7,7 +7,6 @@ import {
   GameDigResultSchema,
 } from "../src/container/gamedig/schema.ts";
 import type { GameDigResult } from "../src/container/gamedig/schema.ts";
-import { GameServerStatusSchema } from "../src/container/gamedig/status.ts";
 
 const valveRaw = {
   appId: 730,
@@ -60,31 +59,6 @@ const emptyResult: GameDigResult = {
   raw: {},
   version: "",
 };
-
-describe("API schemas", () => {
-  test("accepts a normalized online GameDig result", () => {
-    const decoded = Schema.decodeUnknownSync(GameServerStatusSchema)({
-      map: "surf_utopia",
-      maxPlayers: 64,
-      name: "cf-gamedig Test",
-      online: true,
-      players: 23,
-    });
-    expect(decoded.online).toBe(true);
-  });
-
-  test("rejects an invalid normalized GameDig result", () => {
-    expect(() =>
-      Schema.decodeUnknownSync(GameServerStatusSchema)({
-        map: "surf_utopia",
-        maxPlayers: 64,
-        name: "cf-gamedig Test",
-        online: true,
-        players: "23",
-      })
-    ).toThrow();
-  });
-});
 
 describe("GameDig boundary schemas", () => {
   test("accepts a normal generic GameDig result with players and bots", () => {

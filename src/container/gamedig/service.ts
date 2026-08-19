@@ -5,10 +5,9 @@ import type { GameDigError } from "./errors.ts";
 import { GameDigQueryError } from "./query-error.ts";
 import { GameDigResponseError } from "./response-error.ts";
 import { GameDigResultSchema } from "./schema.ts";
-import { GameServerStatusSchema } from "./status.ts";
-import type { GameServerStatus } from "./status.ts";
+import type { GameDigResult } from "./schema.ts";
 
-/** Normalized GameDig query capability. */
+/** Full GameDig query capability backed by the GameDig library. */
 export class GameDigService extends Context.Service<
   GameDigService,
   {
@@ -16,7 +15,7 @@ export class GameDigService extends Context.Service<
       type: string,
       host: string,
       port: number
-    ) => Effect.Effect<GameServerStatus, GameDigError>;
+    ) => Effect.Effect<GameDigResult, GameDigError>;
   }
 >()("@cf-gamedig/GameDigService") {
   /** Live GameDig-backed implementation. */
@@ -29,7 +28,7 @@ export class GameDigService extends Context.Service<
         type: string,
         host: string,
         port: number
-      ): Effect.fn.Return<GameServerStatus, GameDigError> {
+      ): Effect.fn.Return<GameDigResult, GameDigError> {
         const startedAt = clock.currentTimeMillisUnsafe();
         yield* Effect.logInfo("GameDig query started").pipe(
           Effect.annotateLogs({ host, port, type })
@@ -53,29 +52,15 @@ export class GameDigService extends Context.Service<
             }),
         });
 
-        const status = yield* Schema.decodeUnknownEffect(GameDigResultSchema)(
+        const result = yield* Schema.decodeUnknownEffect(GameDigResultSchema)(
           externalResult
         ).pipe(
-          Effect.flatMap((result) =>
-            Schema.decodeUnknownEffect(GameServerStatusSchema)({
-              bots: result.bots.length,
-              connect: result.connect || undefined,
-              map: result.map,
-              maxPlayers: result.maxplayers,
-              name: result.name,
-              online: true as const,
-              ping: result.ping,
-              players: result.numplayers,
-              queryPort: result.queryPort || undefined,
-              version: result.version || undefined,
-            })
-          ),
           Effect.mapError(
             () =>
               new GameDigResponseError({
                 elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
                 host,
-                message: "GameDig returned an invalid server status",
+                message: "GameDig returned an invalid server result",
                 port,
                 type,
               })
@@ -85,12 +70,12 @@ export class GameDigService extends Context.Service<
           Effect.annotateLogs({
             elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
             host,
-            players: status.players,
+            players: result.numplayers,
             port,
             type,
           })
         );
-        return status;
+        return result;
       });
 
       return GameDigService.of({ query });
