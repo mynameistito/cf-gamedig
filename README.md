@@ -138,7 +138,7 @@ curl -X POST "https://<deployment>/query" \
 ```bash
 curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
-  --data '{"type":"scpsl","host":"example.com","options":{"accountId":"TEST_ACCOUNT","apiKey":"TEST_API_KEY","serverId":"42"}}'
+  --data '{"type":"ssl","host":"example.com","options":{"accountId":"TEST_ACCOUNT","apiKey":"TEST_API_KEY","serverId":"42"}}'
 ```
 
 ```bash
