@@ -1,0 +1,89 @@
+import { createSocket } from "node:dgram";
+
+const FIXTURE_PORT = 27_960;
+const EXPECTED_QUERY = Buffer.from(
+  "\xff\xff\xff\xffgetstatus\x00",
+  "latin1"
+);
+const SERVER_INFO = [
+  "\\sv_hostname\\^1CF GameDig E2E",
+  "\\mapname\\q3dm17",
+  "\\sv_maxclients\\16",
+  "\\clients\\2",
+  "\\g_needpass\\0",
+  "\\version\\ioquake3 1.36",
+].join("");
+const STATUS_RESPONSE = Buffer.from(
+  [
+    "\xff\xff\xff\xffstatusResponse",
+    SERVER_INFO,
+    '7 42 "^2Alice"',
+    '0 0 "^3Fixture Bot"',
+    "",
+  ].join("\n"),
+  "latin1"
+);
+
+const socket = createSocket("udp4");
+
+socket.on("message", (message, remote) => {
+  if (!message.equals(EXPECTED_QUERY)) {
+    console.error(
+      JSON.stringify({
+        event: "quake3_fixture_unexpected_packet",
+        packetHex: message.toString("hex"),
+        remoteAddress: remote.address,
+        remotePort: remote.port,
+      })
+    );
+    return;
+  }
+
+  socket.send(STATUS_RESPONSE, remote.port, remote.address, (error) => {
+    if (error !== null) {
+      console.error(
+        JSON.stringify({
+          error: error.message,
+          event: "quake3_fixture_send_error",
+        })
+      );
+      return;
+    }
+
+    console.info(
+      JSON.stringify({
+        event: "quake3_fixture_exchange",
+        remoteAddress: remote.address,
+        remotePort: remote.port,
+      })
+    );
+  });
+});
+
+socket.on("error", (error) => {
+  console.error(
+    JSON.stringify({
+      error: error.message,
+      event: "quake3_fixture_socket_error",
+    })
+  );
+  process.exitCode = 1;
+});
+
+socket.bind(FIXTURE_PORT, "0.0.0.0", () => {
+  console.info(
+    JSON.stringify({
+      event: "quake3_fixture_ready",
+      port: FIXTURE_PORT,
+      protocol: "quake3",
+      transport: "udp",
+    })
+  );
+});
+
+const shutdown = (): void => {
+  socket.close();
+};
+
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
