@@ -12,7 +12,10 @@ import {
   toPublicQueryParams,
 } from "./query-params.ts";
 import { PayloadTooLargeError } from "./request-errors.ts";
-import { MAX_POST_BODY_BYTES } from "./request-limits.ts";
+import {
+  MAX_POST_BODY_BYTES,
+  MAX_POST_BODY_CHUNKS,
+} from "./request-limits.ts";
 import {
   applyTargetPolicy,
   DEFAULT_TARGET_POLICY_MODE,
@@ -27,7 +30,6 @@ class InvalidJsonError extends taggedError<InvalidJsonError>()("InvalidJson", {
 }) {}
 
 type ExecuteQuery = (query: QueryParams) => Response | Promise<Response>;
-type ExecuteParsedQuery = (query: QueryParams) => Response | Promise<Response>;
 
 interface CollectedBody {
   readonly byteLength: number;
@@ -52,6 +54,11 @@ const invalidQueryResponse = (message: string, type = "InvalidQuery") =>
 const payloadTooLarge = () =>
   new PayloadTooLargeError({
     message: `POST /query body exceeds ${MAX_POST_BODY_BYTES} bytes`,
+  });
+
+const payloadTooFragmented = () =>
+  new PayloadTooLargeError({
+    message: `POST /query body exceeds ${MAX_POST_BODY_CHUNKS} chunks`,
   });
 
 const payloadTooLargeResponse = (error: PayloadTooLargeError) =>
@@ -105,10 +112,14 @@ const readBodyChunks = async (
   if (byteLength > MAX_POST_BODY_BYTES) {
     return Result.fail(payloadTooLarge());
   }
+  if (collected.chunks.length >= MAX_POST_BODY_CHUNKS) {
+    return Result.fail(payloadTooFragmented());
+  }
 
+  collected.chunks.push(chunk.success.value);
   return readBodyChunks(reader, {
     byteLength,
-    chunks: [...collected.chunks, chunk.success.value],
+    chunks: collected.chunks,
   });
 };
 
@@ -122,6 +133,12 @@ const decodeBody = ({ byteLength, chunks }: CollectedBody): string => {
   return new TextDecoder().decode(bytes);
 };
 
+const cancelBody = async (body: ReadableStream<Uint8Array> | null) => {
+  if (body !== null) {
+    await body.cancel().catch(() => undefined);
+  }
+};
+
 const readPostBody = async (
   request: Request
 ): Promise<Result.Result<string, InvalidJsonError | PayloadTooLargeError>> => {
@@ -129,6 +146,7 @@ const readPostBody = async (
   if (contentLength !== null) {
     const declaredBytes = Number(contentLength);
     if (Number.isFinite(declaredBytes) && declaredBytes > MAX_POST_BODY_BYTES) {
+      await cancelBody(request.body);
       return Result.fail(payloadTooLarge());
     }
   }
@@ -141,6 +159,7 @@ const readPostBody = async (
   try {
     const body = await readBodyChunks(reader, { byteLength: 0, chunks: [] });
     if (Result.isFailure(body)) {
+      await reader.cancel().catch(() => undefined);
       return Result.fail(body.failure);
     }
     return Result.succeed(decodeBody(body.success));
@@ -206,7 +225,7 @@ const executeValidatedQuery = (
 
 const handleGetQuery = (
   searchParams: URLSearchParams,
-  executeParsedQuery: ExecuteParsedQuery
+  executeQuery: ExecuteQuery
 ): Response | Promise<Response> => {
   const sensitiveParameter = findSensitiveQueryParameter(searchParams);
   if (sensitiveParameter !== undefined) {
@@ -219,12 +238,12 @@ const handleGetQuery = (
   if (Result.isFailure(query)) {
     return invalidQueryResponse(query.failure.message, query.failure._tag);
   }
-  return executeParsedQuery(query.success);
+  return executeQuery(query.success);
 };
 
 const handlePostQuery = async (
   request: Request,
-  executeParsedQuery: ExecuteParsedQuery
+  executeQuery: ExecuteQuery
 ): Promise<Response> => {
   if (!hasJsonContentType(request)) {
     return respondJson(
@@ -262,17 +281,21 @@ const handlePostQuery = async (
   if (Result.isFailure(query)) {
     return invalidQueryResponse(query.failure.message, query.failure._tag);
   }
-  return executeParsedQuery(query.success);
+  return executeQuery(query.success);
 };
 
-const methodNotAllowed = () =>
-  respondJson(
+const methodNotAllowed = (allowedMethods: readonly string[]) => {
+  const allow = allowedMethods.join(", ");
+  const response = respondJson(
     {
-      error: { message: "Use GET", type: "MethodNotAllowed" },
+      error: { message: `Use ${allow}`, type: "MethodNotAllowed" },
       success: false,
     },
     405
   );
+  response.headers.set("allow", allow);
+  return response;
+};
 
 export const makeRequestHandler =
   (
@@ -281,13 +304,13 @@ export const makeRequestHandler =
   ) =>
   (request: Request): Response | Promise<Response> => {
     const url = new URL(request.url);
-    const executeParsedQuery: ExecuteParsedQuery = (query) =>
+    const executeParsedQuery: ExecuteQuery = (query) =>
       executeValidatedQuery(query, executeQuery, targetPolicyMode);
 
     if (url.pathname === "/health") {
       return request.method === "GET"
         ? respondJson({ service: "cf-gamedig-container", success: true })
-        : methodNotAllowed();
+        : methodNotAllowed(["GET"]);
     }
 
     if (url.pathname !== "/query") {
@@ -299,7 +322,7 @@ export const makeRequestHandler =
             },
             404
           )
-        : methodNotAllowed();
+        : methodNotAllowed(["GET"]);
     }
 
     if (request.method === "GET") {
@@ -308,7 +331,7 @@ export const makeRequestHandler =
     if (request.method === "POST") {
       return handlePostQuery(request, executeParsedQuery);
     }
-    return methodNotAllowed();
+    return methodNotAllowed(["GET", "POST"]);
   };
 
 export const makeContainerRequestHandler = (
