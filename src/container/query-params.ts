@@ -110,11 +110,7 @@ const TeamspeakQueryPortSchema = boundedIntegerFromString(
   65_535,
   TEAMSPEAK_QUERY_PORT_ERROR
 );
-const TelnetPortSchema = boundedIntegerFromString(
-  1,
-  65_535,
-  TELNET_PORT_ERROR
-);
+const TelnetPortSchema = boundedIntegerFromString(1, 65_535, TELNET_PORT_ERROR);
 
 const PostMaxRetriesSchema = boundedInteger(0, MAX_RETRIES, RETRY_ERROR);
 const PostSocketTimeoutSchema = boundedInteger(
