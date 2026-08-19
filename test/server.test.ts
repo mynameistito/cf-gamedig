@@ -26,21 +26,14 @@ const requestQuery = async (query: string) => {
     new Request(`https://container.local/query?${query}`)
   );
   const body: unknown = await response.json();
-
   return { body, calls, response };
 };
 
-const postQuery = async (
-  body: string,
-  contentType: string | undefined = "application/json"
-) => {
+const postRequest = async (body: string, contentType: string | null) => {
   const { calls, handler } = makeFakeHandler();
   const request =
-    contentType === undefined
-      ? new Request("https://container.local/query", {
-          body,
-          method: "POST",
-        })
+    contentType === null
+      ? new Request("https://container.local/query", { body, method: "POST" })
       : new Request("https://container.local/query", {
           body,
           headers: { "content-type": contentType },
@@ -48,16 +41,19 @@ const postQuery = async (
         });
   const response = await handler(request);
   const responseBody: unknown = await response.json();
-
   return { body: responseBody, calls, response };
 };
+
+const postQuery = (body: string, contentType = "application/json") =>
+  postRequest(body, contentType);
+
+const postWithoutContentType = (body: string) => postRequest(body, null);
 
 describe("/query transport", () => {
   test("keeps ordinary GET compatibility", async () => {
     const { calls, response } = await requestQuery(
       "type=minecraft&host=example.com&port=25565&guildId=123456789012345678"
     );
-
     expect(response.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
@@ -69,14 +65,14 @@ describe("/query transport", () => {
   });
 
   test("keeps existing GET validation", async () => {
-    const invalidQueries = [
-      "type=minecraft&host=example.com&debug=1",
-      "type=minecraft&host=example.com&maxRetries=-1",
-      "type=minecraft&host=example.com&ipFamily=5",
-      "type=minecraft&host=example.com&socketTimeout=5000&attemptTimeout=5000",
-    ];
-    const results = await Promise.all(invalidQueries.map(requestQuery));
-
+    const results = await Promise.all(
+      [
+        "type=minecraft&host=example.com&debug=1",
+        "type=minecraft&host=example.com&maxRetries=-1",
+        "type=minecraft&host=example.com&ipFamily=5",
+        "type=minecraft&host=example.com&socketTimeout=5000&attemptTimeout=5000",
+      ].map(requestQuery)
+    );
     for (const result of results) {
       expect(result.response.status).toBe(400);
       expect(result.calls).toHaveLength(0);
@@ -88,15 +84,13 @@ describe("/query transport", () => {
   });
 
   test("rejects sensitive GET parameters without echoing values", async () => {
-    const optionNames = ["password", "token", "apiKey", "telnetPassword"];
     const results = await Promise.all(
-      optionNames.map((option) =>
+      ["password", "token", "apiKey", "telnetPassword"].map((option) =>
         requestQuery(
           `type=palworld&host=example.com&${option}=${TEST_CREDENTIAL}`
         )
       )
     );
-
     for (const result of results) {
       const serialized = JSON.stringify(result.body);
       expect(result.response.status).toBe(400);
@@ -115,7 +109,6 @@ describe("/query transport", () => {
         type: "discord",
       })
     );
-
     expect(response.status).toBe(200);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
@@ -141,7 +134,6 @@ describe("/query transport", () => {
         type: "palworld",
       })
     );
-
     expect(response.status).toBe(200);
     expect(calls[0]).toMatchObject({
       apiKey: TEST_CREDENTIAL,
@@ -155,7 +147,6 @@ describe("/query transport", () => {
 
   test("returns 400 for malformed JSON", async () => {
     const { body, calls, response } = await postQuery("{");
-
     expect(response.status).toBe(400);
     expect(calls).toHaveLength(0);
     expect(body).toEqual({
@@ -166,10 +157,9 @@ describe("/query transport", () => {
 
   test("requires an application/json content type", async () => {
     const results = await Promise.all([
-      postQuery("{}", undefined),
+      postWithoutContentType("{}"),
       postQuery("{}", "text/plain"),
     ]);
-
     for (const result of results) {
       expect(result.response.status).toBe(415);
       expect(result.calls).toHaveLength(0);
@@ -185,7 +175,6 @@ describe("/query transport", () => {
       JSON.stringify({ host: "example.com", type: "minecraft" }),
       "application/json; charset=utf-8"
     );
-
     expect(response.status).toBe(200);
   });
 
@@ -200,7 +189,6 @@ describe("/query transport", () => {
         type: "teamspeak3",
       })
     );
-
     expect(response.status).toBe(400);
     expect(calls).toHaveLength(0);
     expect(body).toEqual({
@@ -212,115 +200,25 @@ describe("/query transport", () => {
 
   test("parses the required protocol-specific option combinations", async () => {
     const cases = [
-      {
-        expected: { guildId: "123456789012345678" },
-        request: {
-          host: "discord.example.com",
-          options: { guildId: "123456789012345678" },
-          type: "discord",
-        },
-      },
-      {
-        expected: {
-          accountId: "TEST_ACCOUNT",
-          apiKey: TEST_CREDENTIAL,
-          serverId: "42",
-        },
-        request: {
-          host: "scpsl.example.com",
-          options: {
-            accountId: "TEST_ACCOUNT",
-            apiKey: TEST_CREDENTIAL,
-            serverId: "42",
-          },
-          type: "scpsl",
-        },
-      },
-      {
-        expected: { token: TEST_CREDENTIAL },
-        request: {
-          host: "farm.example.com",
-          options: { token: TEST_CREDENTIAL },
-          type: "farmingsimulator22",
-        },
-      },
-      {
-        expected: { token: TEST_CREDENTIAL },
-        request: {
-          host: "terraria.example.com",
-          options: { token: TEST_CREDENTIAL },
-          type: "terraria",
-        },
-      },
-      {
-        expected: { password: TEST_CREDENTIAL, username: "admin" },
-        request: {
-          host: "pal.example.com",
-          options: { password: TEST_CREDENTIAL, username: "admin" },
-          type: "palworld",
-        },
-      },
-      {
-        expected: {
-          moreData: true,
-          telnetPassword: TEST_CREDENTIAL,
-          telnetPort: 8081,
-        },
-        request: {
-          host: "7dtd.example.com",
-          options: {
-            moreData: true,
-            telnetPassword: TEST_CREDENTIAL,
-            telnetPort: 8081,
-          },
-          type: "7daystodie",
-        },
-      },
-      {
-        expected: { teamspeakQueryPort: 10_011 },
-        request: {
-          host: "ts.example.com",
-          options: { teamspeakQueryPort: 10_011 },
-          type: "teamspeak3",
-        },
-      },
-      {
-        expected: { login: "SuperAdmin", password: TEST_CREDENTIAL },
-        request: {
-          host: "nadeo.example.com",
-          options: { login: "SuperAdmin", password: TEST_CREDENTIAL },
-          type: "trackmania2",
-        },
-      },
-      {
-        expected: { rejectUnauthorized: true, token: TEST_CREDENTIAL },
-        request: {
-          host: "satisfactory.example.com",
-          options: {
-            rejectUnauthorized: true,
-            token: TEST_CREDENTIAL,
-          },
-          type: "satisfactory",
-        },
-      },
-      {
-        expected: { serverId: "server-42", snapshotInterval: "6h" },
-        request: {
-          host: "bp.example.com",
-          options: { serverId: "server-42", snapshotInterval: "6h" },
-          type: "brokeprotocol",
-        },
-      },
-    ];
+      [{ guildId: "123456789012345678" }, { host: "discord.example.com", options: { guildId: "123456789012345678" }, type: "discord" }],
+      [{ accountId: "TEST_ACCOUNT", apiKey: TEST_CREDENTIAL, serverId: "42" }, { host: "scpsl.example.com", options: { accountId: "TEST_ACCOUNT", apiKey: TEST_CREDENTIAL, serverId: "42" }, type: "scpsl" }],
+      [{ token: TEST_CREDENTIAL }, { host: "farm.example.com", options: { token: TEST_CREDENTIAL }, type: "farmingsimulator22" }],
+      [{ token: TEST_CREDENTIAL }, { host: "terraria.example.com", options: { token: TEST_CREDENTIAL }, type: "terraria" }],
+      [{ password: TEST_CREDENTIAL, username: "admin" }, { host: "pal.example.com", options: { password: TEST_CREDENTIAL, username: "admin" }, type: "palworld" }],
+      [{ moreData: true, telnetPassword: TEST_CREDENTIAL, telnetPort: 8081 }, { host: "7dtd.example.com", options: { moreData: true, telnetPassword: TEST_CREDENTIAL, telnetPort: 8081 }, type: "7daystodie" }],
+      [{ teamspeakQueryPort: 10_011 }, { host: "ts.example.com", options: { teamspeakQueryPort: 10_011 }, type: "teamspeak3" }],
+      [{ login: "SuperAdmin", password: TEST_CREDENTIAL }, { host: "nadeo.example.com", options: { login: "SuperAdmin", password: TEST_CREDENTIAL }, type: "trackmania2" }],
+      [{ rejectUnauthorized: true, token: TEST_CREDENTIAL }, { host: "satisfactory.example.com", options: { rejectUnauthorized: true, token: TEST_CREDENTIAL }, type: "satisfactory" }],
+      [{ serverId: "server-42", snapshotInterval: "6h" }, { host: "bp.example.com", options: { serverId: "server-42", snapshotInterval: "6h" }, type: "brokeprotocol" }],
+    ] as const;
     const results = await Promise.all(
-      cases.map((entry) => postQuery(JSON.stringify(entry.request)))
+      cases.map(([, request]) => postQuery(JSON.stringify(request)))
     );
-
-    cases.forEach((entry, index) => {
+    for (const [index, [expected]] of cases.entries()) {
       const result = results[index];
       expect(result?.response.status).toBe(200);
       expect(result?.calls).toHaveLength(1);
-      expect(result?.calls[0]).toMatchObject(entry.expected);
-    });
+      expect(result?.calls[0]).toMatchObject(expected);
+    }
   });
 });
