@@ -8,6 +8,8 @@ import type { GameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";
 import { AppConfig, AppLive } from "./layers.ts";
 import type { ConfigurationError } from "./layers.ts";
+import { parseQueryParams } from "./query.ts";
+import type { QueryParams } from "./query.ts";
 
 const runtime = ManagedRuntime.make(AppLive);
 
@@ -31,11 +33,11 @@ const rawA2SProgram = Effect.gen(function* rawA2SProgram() {
   return yield* a2s.queryInfo(config.host, config.port, config.a2sTimeoutMs);
 });
 
-const gameDigProgram = Effect.gen(function* gameDigProgram() {
-  const config = yield* AppConfig;
-  const gameDig = yield* GameDigService;
-  return yield* gameDig.query(config.host, config.port);
-});
+const gameDigProgram = (params: QueryParams) =>
+  Effect.gen(function* runGameDig() {
+    const gameDig = yield* GameDigService;
+    return yield* gameDig.query(params.type, params.host, params.port);
+  });
 
 const runRawA2S = async (): Promise<Response> => {
   const result = await runtime.runPromise(
@@ -55,18 +57,12 @@ const runRawA2S = async (): Promise<Response> => {
   return result;
 };
 
-const runGameDig = async (): Promise<Response> => {
+const runGameDig = async (params: QueryParams): Promise<Response> => {
   const result = await runtime.runPromise(
-    gameDigProgram.pipe(
+    gameDigProgram(params).pipe(
       Effect.match({
-        onFailure: (error: GameDigError | ConfigurationError) =>
-          json(
-            error._tag === "ConfigurationError"
-              ? configurationErrorBody(error)
-              : mapGameDigError(error),
-            504
-          ),
-        onSuccess: (server) => json({ server, success: true }),
+        onFailure: (error: GameDigError) => json(mapGameDigError(error), 504),
+        onSuccess: (server) => json({ query: params, server, success: true }),
       })
     )
   );
@@ -96,8 +92,20 @@ export const handleRequest = (request: Request): Promise<Response> => {
     case "/raw-a2s": {
       return runRawA2S();
     }
-    case "/gamedig": {
-      return runGameDig();
+    case "/query": {
+      const result = parseQueryParams(new URL(request.url).searchParams);
+      if (!result.ok) {
+        return Promise.resolve(
+          json(
+            {
+              success: false,
+              error: { message: result.message, type: "InvalidQuery" },
+            },
+            400
+          )
+        );
+      }
+      return runGameDig(result.params);
     }
     default: {
       return Promise.resolve(

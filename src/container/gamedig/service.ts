@@ -9,6 +9,7 @@ export class GameDigService extends Context.Tag("@kzg/GameDigService")<
   GameDigService,
   {
     readonly query: (
+      type: string,
       host: string,
       port: number
     ) => Effect.Effect<GameServerStatus, GameDigError>;

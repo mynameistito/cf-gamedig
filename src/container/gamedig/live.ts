@@ -8,26 +8,28 @@ import type { GameDigError } from "./errors.ts";
 import { GameDigService } from "./service.ts";
 
 const query = (
+  type: string,
   host: string,
   port: number
 ): Effect.Effect<GameServerStatus, GameDigError> =>
   Effect.gen(function* runGameDigQuery() {
     const startedAt = Date.now();
     yield* Effect.logInfo("GameDig query started").pipe(
-      Effect.annotateLogs({ host, port })
+      Effect.annotateLogs({ host, port, type })
     );
     const result = yield* Effect.tryPromise({
       catch: (cause) =>
         new GameDigQueryError({
           host,
-          port,
           message:
             cause instanceof Error ? cause.message : "GameDig query failed",
+          port,
+          type,
           elapsedMs: Date.now() - startedAt,
         }),
       try: () =>
         GameDig.query({
-          type: "counterstrike2",
+          type,
           host,
           port,
           givenPortOnly: true,
@@ -57,6 +59,7 @@ const query = (
             host,
             message: "GameDig returned an invalid server status",
             port,
+            type,
           })
       )
     );
@@ -66,6 +69,7 @@ const query = (
         host,
         players: status.players,
         port,
+        type,
       })
     );
     return status;

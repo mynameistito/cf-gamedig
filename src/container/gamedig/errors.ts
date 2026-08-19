@@ -1,6 +1,7 @@
 import { Data } from "effect3";
 
 interface GameDigErrorFields {
+  readonly type: string;
   readonly host: string;
   readonly port: number;
   readonly message: string;
