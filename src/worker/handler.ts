@@ -189,7 +189,9 @@ export const handleWorkerRequest = async (
   }
 
   if (!isAllowedMethod(request.method, pathname)) {
-    return complete(errorResponse("Method not allowed", "MethodNotAllowed", 405));
+    return complete(
+      errorResponse("Method not allowed", "MethodNotAllowed", 405)
+    );
   }
 
   if (pathname === "/query") {
