@@ -2,6 +2,11 @@ import { Result, Schema } from "effect";
 
 const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
 
+class InvalidQueryError extends Schema.TaggedError<InvalidQueryError>()(
+  "InvalidQuery",
+  { message: Schema.String }
+) {}
+
 const requiredString = (message: string) =>
   Schema.String.pipe(
     Schema.annotateKey({ messageMissingKey: message }),
@@ -25,7 +30,7 @@ export type QueryParams = typeof QueryParamsSchema.Type;
 
 export const parseQueryParams = (
   searchParams: URLSearchParams
-): Result.Result<QueryParams, string> => {
+): Result.Result<QueryParams, InvalidQueryError> => {
   const input = {
     host: searchParams.get("host")?.trim() ?? "",
     port: searchParams.get("port")?.trim() ?? "",
@@ -34,6 +39,9 @@ export const parseQueryParams = (
 
   return Result.mapError(
     Schema.decodeUnknownResult(QueryParamsSchema)(input),
-    (failure) => failure.message?.split("\n")[0] ?? "Invalid query"
+    (failure) =>
+      new InvalidQueryError({
+        message: failure.message?.split("\n")[0] ?? "Invalid query",
+      })
   );
 };
