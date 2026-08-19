@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { handleWorkerRequest } from "../src/worker/index.ts";
+import { handleWorkerRequest } from "../src/worker/handler.ts";
 
 const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
 
