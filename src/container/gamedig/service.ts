@@ -1,8 +1,7 @@
 import { Clock, Context, Effect, Layer, Schema } from "effect";
 import { GameDig } from "gamedig";
 
-import type { GameDigError } from "./errors.ts";
-import { GameDigQueryError, GameDigResponseError } from "./errors.ts";
+import { GameDigError } from "./errors.ts";
 import type { GameDigResult } from "./schema.ts";
 import { GameDigResultSchema } from "./schema.ts";
 
@@ -12,7 +11,7 @@ interface GameDigQuery {
   readonly type: string;
 }
 
-interface GameDigServiceShape {
+interface GameDigServiceDefinition {
   readonly query: (
     query: GameDigQuery
   ) => Effect.Effect<GameDigResult, GameDigError>;
@@ -20,7 +19,7 @@ interface GameDigServiceShape {
 
 export class GameDigService extends Context.Service<
   GameDigService,
-  GameDigServiceShape
+  GameDigServiceDefinition
 >()("@cf-gamedig/GameDigService") {
   static readonly layer = Layer.effect(
     GameDigService,
@@ -39,10 +38,11 @@ export class GameDigService extends Context.Service<
 
         const externalResult = yield* Effect.tryPromise({
           catch: (cause) =>
-            new GameDigQueryError({
+            new GameDigError({
               cause,
               elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
               host,
+              kind: "query",
               message:
                 cause instanceof Error ? cause.message : "GameDig query failed",
               port,
@@ -62,10 +62,11 @@ export class GameDigService extends Context.Service<
         ).pipe(
           Effect.mapError(
             (cause) =>
-              new GameDigResponseError({
+              new GameDigError({
                 cause,
                 elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
                 host,
+                kind: "response",
                 message: "GameDig returned an invalid server result",
                 port,
                 type,
