@@ -1,5 +1,5 @@
 import { Container, getContainer } from "@cloudflare/containers";
-import type * as Cloudflare from "alchemy/Cloudflare";
+import type { InferEnv } from "alchemy/Cloudflare";
 
 import type { Worker } from "../../alchemy.run.ts";
 
@@ -14,10 +14,7 @@ export class GameDigContainer extends Container {
 const routes = new Set(["/health", "/query"]);
 
 export default {
-  fetch(
-    request: Request,
-    env: Cloudflare.InferEnv<typeof Worker>
-  ): Promise<Response> {
+  fetch(request: Request, env: InferEnv<typeof Worker>): Promise<Response> {
     const url = new URL(request.url);
     if (request.method !== "GET" || !routes.has(url.pathname)) {
       return Promise.resolve(

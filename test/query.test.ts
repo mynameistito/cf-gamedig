@@ -10,10 +10,14 @@ const parse = (search: string) =>
 describe("parseQueryParams", () => {
   test("parses a valid query", () => {
     expect(
-      parse("?type=counterstrike2&host=103.212.227.45&port=27015")
+      parse("?type=counterstrike2&host=play.example.com&port=27015")
     ).toEqual({
       ok: true,
-      params: { host: "103.212.227.45", port: 27_015, type: "counterstrike2" },
+      params: {
+        host: "play.example.com",
+        port: 27_015,
+        type: "counterstrike2",
+      },
     });
   });
 
@@ -34,43 +38,43 @@ describe("parseQueryParams", () => {
 
   test("rejects a missing type", () => {
     expect(parse("?host=example.com&port=27015")).toEqual({
-      ok: false,
       message: "Missing required parameter: type",
+      ok: false,
     });
   });
 
   test("rejects an unknown game type", () => {
     expect(parse("?type=not-a-game&host=example.com&port=27015")).toEqual({
-      ok: false,
       message: "Unknown game type: not-a-game",
+      ok: false,
     });
   });
 
   test("rejects a missing host", () => {
     expect(parse("?type=minecraft&port=25565")).toEqual({
-      ok: false,
       message: "Missing required parameter: host",
+      ok: false,
     });
   });
 
   test("rejects a missing port", () => {
     expect(parse("?type=minecraft&host=example.com")).toEqual({
-      ok: false,
       message: "Invalid port: expected an integer between 1 and 65535",
+      ok: false,
     });
   });
 
   test("rejects a non-numeric port", () => {
     expect(parse("?type=minecraft&host=example.com&port=abc")).toEqual({
-      ok: false,
       message: "Invalid port: expected an integer between 1 and 65535",
+      ok: false,
     });
   });
 
   test("rejects a port outside the valid range", () => {
     expect(parse("?type=minecraft&host=example.com&port=65536")).toEqual({
-      ok: false,
       message: "Invalid port: expected an integer between 1 and 65535",
+      ok: false,
     });
   });
 });

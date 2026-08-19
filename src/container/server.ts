@@ -9,7 +9,7 @@ import type { QueryParams } from "./query.ts";
 
 const runtime = ManagedRuntime.make(GameDigServiceLive);
 
-const json = (body: unknown, status = 200): Response =>
+const json = <T>(body: T, status = 200): Response =>
   Response.json(body, {
     headers: { "cache-control": "no-store" },
     status,
@@ -50,7 +50,7 @@ export const handleRequest = (request: Request): Promise<Response> => {
   switch (new URL(request.url).pathname) {
     case "/health": {
       return Promise.resolve(
-        json({ success: true, service: "cf-gamedig-container" })
+        json({ service: "cf-gamedig-container", success: true })
       );
     }
     case "/query": {
@@ -59,8 +59,8 @@ export const handleRequest = (request: Request): Promise<Response> => {
         return Promise.resolve(
           json(
             {
-              success: false,
               error: { message: result.message, type: "InvalidQuery" },
+              success: false,
             },
             400
           )
@@ -72,8 +72,8 @@ export const handleRequest = (request: Request): Promise<Response> => {
       return Promise.resolve(
         json(
           {
+            error: { message: "Route not found", type: "NotFound" },
             success: false,
-            error: { type: "NotFound", message: "Route not found" },
           },
           404
         )

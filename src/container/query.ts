@@ -21,23 +21,23 @@ export const parseQueryParams = (
 ): ParseQueryParamsResult => {
   const type = searchParams.get("type")?.trim() ?? "";
   if (!type) {
-    return { ok: false, message: "Missing required parameter: type" };
+    return { message: "Missing required parameter: type", ok: false };
   }
   if (!isKnownGameType(type)) {
-    return { ok: false, message: `Unknown game type: ${type}` };
+    return { message: `Unknown game type: ${type}`, ok: false };
   }
 
   const host = searchParams.get("host")?.trim() ?? "";
   if (!host) {
-    return { ok: false, message: "Missing required parameter: host" };
+    return { message: "Missing required parameter: host", ok: false };
   }
 
   const rawPort = searchParams.get("port")?.trim() ?? "";
   const port = Number(rawPort);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     return {
-      ok: false,
       message: "Invalid port: expected an integer between 1 and 65535",
+      ok: false,
     };
   }
 
