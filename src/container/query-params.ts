@@ -1,4 +1,4 @@
-import { Effect, Result, Schema, SchemaTransformation } from "effect";
+import { Result, Schema, SchemaTransformation } from "effect";
 
 const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
 const taggedError = Schema.TaggedError;
@@ -21,8 +21,7 @@ const GivenPortOnlySchema = Schema.Literals(["false", "true"]).pipe(
       decode: (value) => value === "true",
       encode: (value) => (value ? "true" : "false"),
     })
-  ),
-  Schema.withDecodingDefault(Effect.succeed("false"))
+  )
 );
 
 const PortSchema = Schema.NumberFromString.pipe(
@@ -44,12 +43,9 @@ export type QueryParams = typeof QueryParamsSchema.Type;
 export const parseQueryParams = (
   searchParams: URLSearchParams
 ): Result.Result<QueryParams, InvalidQueryError> => {
-  const givenPortOnly = searchParams.get("givenPortOnly");
   const port = searchParams.get("port");
   const input = {
-    ...(givenPortOnly === null
-      ? {}
-      : { givenPortOnly: givenPortOnly.trim() }),
+    givenPortOnly: searchParams.get("givenPortOnly")?.trim() ?? "false",
     host: searchParams.get("host")?.trim() ?? "",
     ...(port === null ? {} : { port: port.trim() }),
     type: searchParams.get("type")?.trim() ?? "",
