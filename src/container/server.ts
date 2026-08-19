@@ -7,6 +7,7 @@ import {
   findSensitiveQueryParameter,
   parsePostQuery,
   parseQueryParams,
+  PostQueryRequestSchema,
   toPublicQueryParams,
 } from "./query-params.ts";
 
@@ -77,7 +78,10 @@ export const makeRequestHandler = (executeQuery: ExecuteQuery) =>
   async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
 
-    if (request.method !== "GET" && !(request.method === "POST" && url.pathname === "/query")) {
+    if (
+      request.method !== "GET" &&
+      !(request.method === "POST" && url.pathname === "/query")
+    ) {
       return respondJson(
         {
           error: { message: "Use GET", type: "MethodNotAllowed" },
@@ -125,7 +129,14 @@ export const makeRequestHandler = (executeQuery: ExecuteQuery) =>
           return invalidQueryResponse(json.failure.message, json.failure._tag);
         }
 
-        const query = parsePostQuery(json.success);
+        const postRequest = Schema.decodeUnknownResult(PostQueryRequestSchema)(
+          json.success
+        );
+        if (Result.isFailure(postRequest)) {
+          return invalidQueryResponse("Invalid POST /query body");
+        }
+
+        const query = parsePostQuery(postRequest.success);
         if (Result.isFailure(query)) {
           return invalidQueryResponse(query.failure.message, query.failure._tag);
         }
