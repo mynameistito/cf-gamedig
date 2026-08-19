@@ -88,15 +88,15 @@ bun run destroy
 Select the Cloudflare account explicitly before deployment:
 
 ```bash
-ALCHEMY_PROFILE=<profile> bun alchemy login --profile <profile> --configure
-ALCHEMY_PROFILE=<profile> bun run deploy
+bun alchemy login --profile <profile> --configure
+bun run deploy --profile <profile>
 ```
 
 Check logs after deploying:
 
 ```bash
-ALCHEMY_PROFILE=<profile> bun alchemy logs --filter cf-gamedig-worker --since 30m --limit 100
-ALCHEMY_PROFILE=<profile> bun alchemy logs --filter cf-gamedig-container --since 30m --limit 100
+bun alchemy logs --profile <profile> --filter cf-gamedig-worker --since 30m --limit 100
+bun alchemy logs --profile <profile> --filter cf-gamedig-container --since 30m --limit 100
 ```
 
 ## Notes
