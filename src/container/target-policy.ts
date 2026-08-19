@@ -59,6 +59,9 @@ for (const [network, prefix] of [
   ipv6Blocked.addSubnet(network, prefix, "ipv6");
 }
 
+const NON_CANONICAL_IPV4_LITERAL =
+  /^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+)){0,3}\.?$/i;
+
 const invalidTarget = (field: "address" | "host") =>
   new InvalidTargetError({
     message: `Invalid ${field}: public-safe target policy rejects non-public IP literals`,
@@ -67,6 +70,9 @@ const invalidTarget = (field: "address" | "host") =>
 const isPublicIpLiteral = (value: string): boolean | undefined => {
   const family = isIP(value);
   if (family === 0) {
+    if (value.includes("%") || NON_CANONICAL_IPV4_LITERAL.test(value)) {
+      return false;
+    }
     return undefined;
   }
   if (family === 4) {
