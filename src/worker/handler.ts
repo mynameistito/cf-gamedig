@@ -104,7 +104,7 @@ const authenticate = async (
 };
 
 const withoutAuthorization = (request: Request): Request => {
-  if (!request.headers.has("authorization")) {
+  if (request.headers.get("authorization") === null) {
     return request;
   }
 
