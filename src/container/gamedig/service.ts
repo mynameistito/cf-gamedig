@@ -2,37 +2,41 @@ import { Clock, Context, Effect, Layer, Schema } from "effect";
 import { GameDig } from "gamedig";
 
 import type { GameDigError } from "./errors.ts";
-import { GameDigQueryError } from "./query-error.ts";
-import { GameDigResponseError } from "./response-error.ts";
-import { GameDigResultSchema } from "./schema.ts";
+import { GameDigQueryError, GameDigResponseError } from "./errors.ts";
 import type { GameDigResult } from "./schema.ts";
+import { GameDigResultSchema } from "./schema.ts";
 
-/** Full GameDig query capability backed by the GameDig library. */
+interface GameDigQuery {
+  readonly host: string;
+  readonly port: number;
+  readonly type: string;
+}
+
+interface GameDigServiceShape {
+  readonly query: (
+    query: GameDigQuery
+  ) => Effect.Effect<GameDigResult, GameDigError>;
+}
+
 export class GameDigService extends Context.Service<
   GameDigService,
-  {
-    readonly query: (
-      type: string,
-      host: string,
-      port: number
-    ) => Effect.Effect<GameDigResult, GameDigError>;
-  }
+  GameDigServiceShape
 >()("@cf-gamedig/GameDigService") {
-  /** Live GameDig-backed implementation. */
   static readonly layer = Layer.effect(
     GameDigService,
     Effect.gen(function* makeGameDigService() {
       const clock = yield* Clock.Clock;
 
-      const query = Effect.fn("GameDigService.query")(function* runGameDigQuery(
-        type: string,
-        host: string,
-        port: number
+      const query = Effect.fn("GameDigService.query")(function* queryGameServer(
+        input: GameDigQuery
       ): Effect.fn.Return<GameDigResult, GameDigError> {
+        const { host, port, type } = input;
         const startedAt = clock.currentTimeMillisUnsafe();
+
         yield* Effect.logInfo("GameDig query started").pipe(
           Effect.annotateLogs({ host, port, type })
         );
+
         const externalResult = yield* Effect.tryPromise({
           catch: (cause) =>
             new GameDigQueryError({
@@ -66,6 +70,7 @@ export class GameDigService extends Context.Service<
               })
           )
         );
+
         yield* Effect.logInfo("GameDig query completed").pipe(
           Effect.annotateLogs({
             elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
@@ -75,6 +80,7 @@ export class GameDigService extends Context.Service<
             type,
           })
         );
+
         return result;
       });
 

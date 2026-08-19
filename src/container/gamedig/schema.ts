@@ -1,19 +1,12 @@
 import { Schema } from "effect";
 
-/** Arbitrary protocol-specific data attached by GameDig. */
-export const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
+const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
 
-export type UnknownRecord = typeof UnknownRecordSchema.Type;
-
-/** A single player or bot reported by GameDig. */
-export const GameDigPlayerSchema = Schema.Struct({
+const GameDigPlayerSchema = Schema.Struct({
   name: Schema.String,
   raw: UnknownRecordSchema,
 });
 
-export type GameDigPlayer = typeof GameDigPlayerSchema.Type;
-
-/** The common cross-game result returned by the GameDig boundary. */
 export const GameDigResultSchema = Schema.Struct({
   bots: Schema.Array(GameDigPlayerSchema),
   connect: Schema.String,

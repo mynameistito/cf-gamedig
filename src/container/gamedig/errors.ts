@@ -1,36 +1,39 @@
-import type { GameDigQueryError } from "./query-error.ts";
-import type { GameDigResponseError } from "./response-error.ts";
+import { Data } from "effect";
 
-/** Payload shared by all GameDig adapter failures. */
-export interface GameDigErrorFields {
-  readonly type: string;
-  readonly host: string;
-  readonly port: number;
-  readonly message: string;
+interface GameDigErrorFields {
   readonly elapsedMs: number;
+  readonly host: string;
+  readonly message: string;
+  readonly port: number;
+  readonly type: string;
 }
 
-/** All expected failures produced by the GameDig adapter. */
+export class GameDigQueryError extends Data.TaggedError(
+  "GameDigQueryError"
+)<GameDigErrorFields> {}
+
+export class GameDigResponseError extends Data.TaggedError(
+  "GameDigResponseError"
+)<GameDigErrorFields> {}
+
 export type GameDigError = GameDigQueryError | GameDigResponseError;
 
-/** Public JSON shape returned for an expected application failure. */
-export interface ErrorResponseBody {
-  readonly success: false;
-  readonly stage: "gamedig";
+interface GameDigErrorResponse {
+  readonly elapsedMs: number;
   readonly error: {
-    readonly type: string;
     readonly message: string;
-  };
-  readonly elapsedMs?: number;
-  readonly query?: {
     readonly type: string;
+  };
+  readonly query: {
     readonly host: string;
     readonly port: number;
+    readonly type: string;
   };
+  readonly stage: "gamedig";
+  readonly success: false;
 }
 
-/** Convert a typed GameDig failure to its safe HTTP representation. */
-export const mapGameDigError = (error: GameDigError): ErrorResponseBody => ({
+export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => ({
   elapsedMs: error.elapsedMs,
   error: { message: error.message, type: error._tag },
   query: { host: error.host, port: error.port, type: error.type },

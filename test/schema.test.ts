@@ -3,10 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { Schema } from "effect";
 
 import {
-  GameDigPlayerSchema,
   GameDigResultSchema,
+  type GameDigResult,
 } from "../src/container/gamedig/schema.ts";
-import type { GameDigResult } from "../src/container/gamedig/schema.ts";
 
 const valveRaw = {
   appId: 730,
@@ -178,9 +177,9 @@ describe("GameDig boundary schemas", () => {
 
   test("rejects a non-object player raw value", () => {
     expect(() =>
-      Schema.decodeUnknownSync(GameDigPlayerSchema)({
-        name: "alice",
-        raw: ["a", "b"],
+      Schema.decodeUnknownSync(GameDigResultSchema)({
+        ...baseResult,
+        players: [{ name: "alice", raw: ["a", "b"] }],
       })
     ).toThrow();
   });

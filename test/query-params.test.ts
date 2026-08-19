@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { Result } from "effect";
 
-import { parseQueryParams } from "../src/container/query.ts";
-import type { QueryParams } from "../src/container/query.ts";
+import type { QueryParams } from "../src/container/query-params.ts";
+import { parseQueryParams } from "../src/container/query-params.ts";
 
 const parse = (search: string) =>
   parseQueryParams(

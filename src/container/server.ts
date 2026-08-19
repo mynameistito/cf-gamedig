@@ -1,45 +1,39 @@
 import { Effect, ManagedRuntime, Result } from "effect";
 
-import type { GameDigError } from "./gamedig/errors.ts";
 import { mapGameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";
-import { parseQueryParams } from "./query.ts";
-import type { QueryParams } from "./query.ts";
+import type { QueryParams } from "./query-params.ts";
+import { parseQueryParams } from "./query-params.ts";
 
 const runtime = ManagedRuntime.make(GameDigService.layer);
 
-const json = <T>(body: T, status = 200): Response =>
+const respondJson = <T>(body: T, status = 200): Response =>
   Response.json(body, {
     headers: { "cache-control": "no-store" },
     status,
   });
 
-const gameDigProgram = Effect.fn("GameDigProgram")(function* runGameDig(
-  params: QueryParams
-) {
-  const gameDig = yield* GameDigService;
-  return yield* gameDig.query(params.type, params.host, params.port);
-});
-
-const runGameDig = (params: QueryParams): Promise<Response> =>
+const runQuery = (query: QueryParams): Promise<Response> =>
   runtime.runPromise(
-    gameDigProgram(params).pipe(
+    Effect.gen(function* queryGameServer() {
+      const gameDig = yield* GameDigService;
+      return yield* gameDig.query(query);
+    }).pipe(
       Effect.match({
-        onFailure: (error: GameDigError) => {
+        onFailure: (error) => {
           const status = error._tag === "GameDigResponseError" ? 502 : 504;
-          return json(mapGameDigError(error), status);
+          return respondJson(mapGameDigError(error), status);
         },
-        onSuccess: (server) => json({ query: params, server, success: true }),
+        onSuccess: (server) => respondJson({ query, server, success: true }),
       })
     )
   );
 
-/** Handle the Container's small HTTP API without embedding query logic in transport code. */
 export const handleRequest = (
   request: Request
 ): Response | Promise<Response> => {
   if (request.method !== "GET") {
-    return json(
+    return respondJson(
       {
         error: { message: "Use GET", type: "MethodNotAllowed" },
         success: false,
@@ -48,25 +42,27 @@ export const handleRequest = (
     );
   }
 
-  switch (new URL(request.url).pathname) {
+  const url = new URL(request.url);
+
+  switch (url.pathname) {
     case "/health": {
-      return json({ service: "cf-gamedig-container", success: true });
+      return respondJson({ service: "cf-gamedig-container", success: true });
     }
     case "/query": {
-      const result = parseQueryParams(new URL(request.url).searchParams);
-      if (Result.isFailure(result)) {
-        return json(
+      const query = parseQueryParams(url.searchParams);
+      if (Result.isFailure(query)) {
+        return respondJson(
           {
-            error: { message: result.failure, type: "InvalidQuery" },
+            error: { message: query.failure, type: "InvalidQuery" },
             success: false,
           },
           400
         );
       }
-      return runGameDig(result.success);
+      return runQuery(query.success);
     }
     default: {
-      return json(
+      return respondJson(
         {
           error: { message: "Route not found", type: "NotFound" },
           success: false,
@@ -77,5 +73,4 @@ export const handleRequest = (
   }
 };
 
-/** Release process-scoped Effect resources during graceful shutdown. */
 export const disposeRuntime = (): Promise<void> => runtime.dispose();
