@@ -36,6 +36,10 @@ interface CollectedBody {
   readonly chunks: Uint8Array[];
 }
 
+interface CancelableReadable {
+  cancel(): Promise<void>;
+}
+
 const respondJson = <T>(body: T, status = 200): Response =>
   Response.json(body, {
     headers: { "cache-control": "no-store" },
@@ -133,9 +137,11 @@ const decodeBody = ({ byteLength, chunks }: CollectedBody): string => {
   return new TextDecoder().decode(bytes);
 };
 
-const cancelBody = async (body: ReadableStream<Uint8Array> | null) => {
-  if (body !== null) {
-    await body.cancel().catch(() => undefined);
+const cancelReadable = async (readable: CancelableReadable): Promise<void> => {
+  try {
+    await readable.cancel();
+  } catch {
+    // Cancellation is best-effort cleanup after the request has already failed.
   }
 };
 
@@ -146,7 +152,9 @@ const readPostBody = async (
   if (contentLength !== null) {
     const declaredBytes = Number(contentLength);
     if (Number.isFinite(declaredBytes) && declaredBytes > MAX_POST_BODY_BYTES) {
-      await cancelBody(request.body);
+      if (request.body !== null) {
+        await cancelReadable(request.body);
+      }
       return Result.fail(payloadTooLarge());
     }
   }
@@ -159,7 +167,7 @@ const readPostBody = async (
   try {
     const body = await readBodyChunks(reader, { byteLength: 0, chunks: [] });
     if (Result.isFailure(body)) {
-      await reader.cancel().catch(() => undefined);
+      await cancelReadable(reader);
       return Result.fail(body.failure);
     }
     return Result.succeed(decodeBody(body.success));
