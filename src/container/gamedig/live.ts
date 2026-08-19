@@ -20,19 +20,19 @@ const query = (
     const result = yield* Effect.tryPromise({
       catch: (cause) =>
         new GameDigQueryError({
+          elapsedMs: Date.now() - startedAt,
           host,
           message:
             cause instanceof Error ? cause.message : "GameDig query failed",
           port,
           type,
-          elapsedMs: Date.now() - startedAt,
         }),
       try: () =>
         GameDig.query({
-          type,
+          givenPortOnly: true,
           host,
           port,
-          givenPortOnly: true,
+          type,
         }),
     });
 
