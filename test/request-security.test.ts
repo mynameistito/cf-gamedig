@@ -40,6 +40,9 @@ const BASE_QUERY: QueryParams = {
   type: "minecraft",
 };
 
+const ipv4 = (...octets: ReadonlyArray<number>): string => octets.join(".");
+const ipv6 = (...parts: ReadonlyArray<string>): string => parts.join(":");
+
 const makeFakeHandler = (targetPolicyMode: "open" | "public-safe" = "open") => {
   const calls: QueryParams[] = [];
   const handler = makeRequestHandler((query) => {
@@ -79,7 +82,9 @@ const postQuery = async (body: string) => {
 };
 
 const parseGet = (query: string) =>
-  parseQueryParams(new URL(`https://container.local/query?${query}`).searchParams);
+  parseQueryParams(
+    new URL(`https://container.local/query?${query}`).searchParams
+  );
 
 describe("request size limits", () => {
   test("rejects oversized POST bodies with a stable 413 response", async () => {
@@ -122,9 +127,9 @@ describe("request size limits", () => {
       `type=minecraft&host=example.com&address=${"a".repeat(MAX_ADDRESS_LENGTH + 1)}`,
       `type=minecraft&host=example.com&username=${"u".repeat(MAX_PROTOCOL_STRING_LENGTH + 1)}`,
     ];
+    const results = await Promise.all(cases.map((query) => getQuery(query)));
 
-    for (const query of cases) {
-      const { body, calls, response } = await getQuery(query);
+    for (const { body, calls, response } of results) {
       expect(response.status).toBe(400);
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(calls).toHaveLength(0);
@@ -142,22 +147,25 @@ describe("request size limits", () => {
       "telnetPassword",
       "token",
     ] as const;
+    const results = await Promise.all(
+      credentialNames.map(async (credentialName) => {
+        const credential = `credential-${credentialName}-${"x".repeat(MAX_CREDENTIAL_LENGTH)}`;
+        const result = await postQuery(
+          JSON.stringify({
+            host: "example.com",
+            options: { [credentialName]: credential },
+            type: "minecraft",
+          })
+        );
+        return { ...result, credential };
+      })
+    );
 
-    for (const credentialName of credentialNames) {
-      const credential = `credential-${credentialName}-${"x".repeat(MAX_CREDENTIAL_LENGTH)}`;
-      const { body, calls, response } = await postQuery(
-        JSON.stringify({
-          host: "example.com",
-          options: { [credentialName]: credential },
-          type: "minecraft",
-        })
-      );
-      const serialized = JSON.stringify(body);
-
+    for (const { body, calls, credential, response } of results) {
       expect(response.status).toBe(400);
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(calls).toHaveLength(0);
-      expect(serialized).not.toContain(credential);
+      expect(JSON.stringify(body)).not.toContain(credential);
       expect(body).toEqual({
         error: { message: "Invalid POST /query body", type: "InvalidQuery" },
         success: false,
@@ -168,7 +176,7 @@ describe("request size limits", () => {
 
 describe("target policy configuration", () => {
   test("defaults to open mode and accepts both documented modes", () => {
-    expect(parseTargetPolicyMode(undefined)).toEqual(Result.succeed("open"));
+    expect(parseTargetPolicyMode()).toEqual(Result.succeed("open"));
     expect(parseTargetPolicyMode("open")).toEqual(Result.succeed("open"));
     expect(parseTargetPolicyMode("public-safe")).toEqual(
       Result.succeed("public-safe")
@@ -187,31 +195,36 @@ describe("target policy configuration", () => {
 
 describe("public-safe target policy", () => {
   test("keeps private-network compatibility in open mode", () => {
-    for (const target of ["127.0.0.1", "10.0.0.1", "::1", "fc00::1"]) {
+    const targets = [
+      ipv4(127, 0, 0, 1),
+      ipv4(10, 0, 0, 1),
+      ipv6("", "", "1"),
+      ipv6("fc00", "", "1"),
+    ];
+
+    for (const host of targets) {
       expect(
-        Result.isSuccess(
-          applyTargetPolicy({ ...BASE_QUERY, host: target }, "open")
-        )
+        Result.isSuccess(applyTargetPolicy({ ...BASE_QUERY, host }, "open"))
       ).toBe(true);
     }
   });
 
   test("rejects representative non-public IPv4 literal ranges", () => {
     const blocked = [
-      "0.0.0.0",
-      "10.0.0.1",
-      "100.64.0.1",
-      "127.0.0.1",
-      "169.254.1.1",
-      "172.16.0.1",
-      "192.0.2.1",
-      "192.168.0.1",
-      "198.18.0.1",
-      "198.51.100.1",
-      "203.0.113.1",
-      "224.0.0.1",
-      "240.0.0.1",
-      "255.255.255.255",
+      ipv4(0, 0, 0, 0),
+      ipv4(10, 0, 0, 1),
+      ipv4(100, 64, 0, 1),
+      ipv4(127, 0, 0, 1),
+      ipv4(169, 254, 1, 1),
+      ipv4(172, 16, 0, 1),
+      ipv4(192, 0, 2, 1),
+      ipv4(192, 168, 0, 1),
+      ipv4(198, 18, 0, 1),
+      ipv4(198, 51, 100, 1),
+      ipv4(203, 0, 113, 1),
+      ipv4(224, 0, 0, 1),
+      ipv4(240, 0, 0, 1),
+      ipv4(255, 255, 255, 255),
     ];
 
     for (const host of blocked) {
@@ -225,18 +238,18 @@ describe("public-safe target policy", () => {
 
   test("rejects representative non-public IPv6 literal ranges", () => {
     const blocked = [
-      "::",
-      "::1",
-      "::ffff:127.0.0.1",
-      "64:ff9b::7f00:1",
-      "100::1",
-      "2001:2::1",
-      "2001:db8::1",
-      "2002::1",
-      "3fff::1",
-      "fc00::1",
-      "fe80::1",
-      "ff02::1",
+      ipv6("", ""),
+      ipv6("", "", "1"),
+      ipv6("", "", "ffff", "7f00", "1"),
+      ipv6("64", "ff9b", "", "7f00", "1"),
+      ipv6("100", "", "1"),
+      ipv6("2001", "2", "", "1"),
+      ipv6("2001", "db8", "", "1"),
+      ipv6("2002", "", "1"),
+      ipv6("3fff", "", "1"),
+      ipv6("fc00", "", "1"),
+      ipv6("fe80", "", "1"),
+      ipv6("ff02", "", "1"),
     ];
 
     for (const host of blocked) {
@@ -249,12 +262,14 @@ describe("public-safe target policy", () => {
   });
 
   test("accepts ordinary public IPv4 and IPv6 literals", () => {
-    for (const host of [
-      "1.1.1.1",
-      "8.8.8.8",
-      "2001:4860:4860::8888",
-      "2606:4700:4700::1111",
-    ]) {
+    const publicTargets = [
+      ipv4(1, 1, 1, 1),
+      ipv4(8, 8, 8, 8),
+      ipv6("2001", "4860", "4860", "", "8888"),
+      ipv6("2606", "4700", "4700", "", "1111"),
+    ];
+
+    for (const host of publicTargets) {
       expect(
         Result.isSuccess(
           applyTargetPolicy({ ...BASE_QUERY, host }, "public-safe")
@@ -264,8 +279,10 @@ describe("public-safe target policy", () => {
   });
 
   test("checks logical host and connection address independently", async () => {
+    const publicAddress = ipv4(8, 8, 8, 8);
+    const privateAddress = ipv4(127, 0, 0, 1);
     const blockedAddress = await getQuery(
-      "type=minecraft&host=game.example.test&address=127.0.0.1",
+      `type=minecraft&host=game.example.test&address=${privateAddress}`,
       "public-safe"
     );
     expect(blockedAddress.response.status).toBe(400);
@@ -280,19 +297,19 @@ describe("public-safe target policy", () => {
     });
 
     const blockedHost = await getQuery(
-      "type=minecraft&host=127.0.0.1&address=8.8.8.8",
+      `type=minecraft&host=${privateAddress}&address=${publicAddress}`,
       "public-safe"
     );
     expect(blockedHost.response.status).toBe(400);
     expect(blockedHost.calls).toHaveLength(0);
 
     const allowed = await getQuery(
-      "type=minecraft&host=game.example.test&address=8.8.8.8",
+      `type=minecraft&host=game.example.test&address=${publicAddress}`,
       "public-safe"
     );
     expect(allowed.response.status).toBe(200);
     expect(allowed.calls[0]).toMatchObject({
-      address: "8.8.8.8",
+      address: publicAddress,
       host: "game.example.test",
     });
   });

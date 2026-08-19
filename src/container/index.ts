@@ -1,10 +1,7 @@
 import { Result } from "effect";
 
 import { disposeRuntime, makeContainerRequestHandler } from "./server.ts";
-import {
-  parseTargetPolicyMode,
-  TARGET_POLICY_ENV,
-} from "./target-policy.ts";
+import { parseTargetPolicyMode, TARGET_POLICY_ENV } from "./target-policy.ts";
 
 const listenPort = Math.trunc(Number(process.env.PORT ?? "8080"));
 const targetPolicy = parseTargetPolicyMode(process.env[TARGET_POLICY_ENV]);
