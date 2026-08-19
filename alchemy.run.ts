@@ -21,7 +21,7 @@ const GameDigContainer = Cloudflare.Container<GameDigContainerClass>(
 /** Public edge Worker and its Container/config bindings. */
 export const Worker = Cloudflare.Worker("cf-gamedig-worker", {
   compatibility: {
-    date: "2026-08-19",
+    date: "2026-07-11",
     flags: ["nodejs_compat"],
   },
   env: {
