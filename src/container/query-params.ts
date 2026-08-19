@@ -49,8 +49,7 @@ export const parseQueryParams = (
     host: searchParams.get("host")?.trim() ?? "",
     type: searchParams.get("type")?.trim() ?? "",
   };
-  const input =
-    port === null ? inputWithoutPort : { ...inputWithoutPort, port: port.trim() };
+  const input = port === null ? inputWithoutPort : { ...inputWithoutPort, port: port.trim() };
 
   return Result.mapError(
     Schema.decodeUnknownResult(QueryParamsSchema)(input),

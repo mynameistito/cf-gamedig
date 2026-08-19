@@ -36,9 +36,7 @@ export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => {
     type: error.type,
   };
   const query =
-    error.port === undefined
-      ? queryWithoutPort
-      : { ...queryWithoutPort, port: error.port };
+    error.port === undefined ? queryWithoutPort : { ...queryWithoutPort, port: error.port };
 
   return {
     elapsedMs: error.elapsedMs,
