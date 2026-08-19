@@ -36,14 +36,18 @@ export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => {
     type: error.type,
   };
   const query =
-    error.port === undefined ? queryWithoutPort : { ...queryWithoutPort, port: error.port };
+    error.port === undefined
+      ? queryWithoutPort
+      : { ...queryWithoutPort, port: error.port };
 
   return {
     elapsedMs: error.elapsedMs,
     error: {
       message: error.message,
       type:
-        error.kind === "response" ? "GameDigResponseError" : "GameDigQueryError",
+        error.kind === "response"
+          ? "GameDigResponseError"
+          : "GameDigQueryError",
     },
     query,
     stage: "gamedig",
