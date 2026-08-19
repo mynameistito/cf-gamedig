@@ -50,7 +50,7 @@ export const handleRequest = (request: Request): Promise<Response> => {
   switch (new URL(request.url).pathname) {
     case "/health": {
       return Promise.resolve(
-        json({ success: true, service: "kzg-gamedig-container" })
+        json({ success: true, service: "cf-gamedig-container" })
       );
     }
     case "/query": {

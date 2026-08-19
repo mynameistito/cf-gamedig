@@ -5,7 +5,7 @@ import type { GameServerStatus } from "../../shared/schema.ts";
 import type { GameDigError } from "./errors.ts";
 
 /** Normalized GameDig query capability. */
-export class GameDigService extends Context.Tag("@kzg/GameDigService")<
+export class GameDigService extends Context.Tag("@cf-gamedig/GameDigService")<
   GameDigService,
   {
     readonly query: (

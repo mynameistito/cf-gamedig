@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "kzg-gamedig-cf-container",
+      "name": "cf-gamedig-container",
       "dependencies": {
         "effect3": "npm:effect@3.22.1",
         "gamedig": "5.3.3",

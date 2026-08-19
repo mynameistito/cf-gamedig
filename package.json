@@ -1,5 +1,5 @@
 {
-  "name": "kzg-gamedig-cf-container",
+  "name": "cf-gamedig-container",
   "private": true,
   "type": "module",
   "scripts": {
