@@ -24,14 +24,21 @@ const STATUS_RESPONSE = Buffer.from(
   "latin1"
 );
 
+const packetEquals = (left: Uint8Array, right: Uint8Array): boolean =>
+  left.length === right.length &&
+  left.every((byte, index) => byte === right[index]);
+
+const toHex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+
 const socket = createSocket("udp4");
 
 socket.on("message", (message, remote) => {
-  if (!message.equals(EXPECTED_QUERY)) {
+  if (!packetEquals(message, EXPECTED_QUERY)) {
     console.error(
       JSON.stringify({
         event: "quake3_fixture_unexpected_packet",
-        packetHex: message.toString("hex"),
+        packetHex: toHex(message),
         remoteAddress: remote.address,
         remotePort: remote.port,
       })
