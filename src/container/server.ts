@@ -1,4 +1,4 @@
-import { Effect, ManagedRuntime } from "effect3";
+import { Effect, ManagedRuntime } from "effect";
 
 import { mapGameDigError } from "../shared/errors.ts";
 import type { GameDigError } from "./gamedig/errors.ts";

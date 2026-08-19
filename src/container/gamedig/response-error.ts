@@ -1,4 +1,4 @@
-import { Data } from "effect3";
+import { Data } from "effect";
 
 import type { GameDigErrorFields } from "./error-fields.ts";
 

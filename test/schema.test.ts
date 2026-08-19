@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { Schema } from "effect3";
+import { Schema } from "effect";
 
 import { GameServerStatusSchema } from "../src/shared/schema.ts";
 

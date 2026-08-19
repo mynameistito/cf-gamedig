@@ -101,7 +101,7 @@ bun alchemy logs --profile <profile> --filter cf-gamedig-container --since 30m -
 
 ## Notes
 
-- Alchemy's container stack pins Effect 4 prerelease tooling, while the app uses stable Effect aliased as `effect3`; only stable Effect and GameDig are installed in the runtime image.
+- Alchemy's container stack pins Effect 4 prerelease tooling, and the app uses the same Effect 4 RC; only Effect and GameDig are installed in the runtime image.
 
 ## Documentation
 
