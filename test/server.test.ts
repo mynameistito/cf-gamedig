@@ -233,7 +233,7 @@ describe("/query transport", () => {
         {
           host: "terraria.example.com",
           options: { token: TEST_CREDENTIAL },
-          type: "terraria",
+          type: "terrariatshock",
         },
       ],
       [
