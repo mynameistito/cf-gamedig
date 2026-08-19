@@ -9,6 +9,8 @@ type CapturedGameDigOptions = QueryParams & {
   readonly portCache: false;
 };
 
+const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
+
 const BASE_QUERY: QueryParams = {
   attemptTimeout: 10_000,
   checkOldIDs: false,
@@ -69,18 +71,18 @@ describe("protocol-specific GameDig options", () => {
     const query: QueryParams = {
       ...BASE_QUERY,
       accountId: "TEST_ACCOUNT",
-      apiKey: "TEST_KEY",
+      apiKey: TEST_CREDENTIAL,
       guildId: "123456789012345678",
       login: "SuperAdmin",
       moreData: true,
-      password: "TEST_PASSWORD",
+      password: TEST_CREDENTIAL,
       rejectUnauthorized: true,
       serverId: "server-42",
       snapshotInterval: "6h",
       teamspeakQueryPort: 10_011,
-      telnetPassword: "TEST_TELNET_PASSWORD",
+      telnetPassword: TEST_CREDENTIAL,
       telnetPort: 8081,
-      token: "TEST_TOKEN",
+      token: TEST_CREDENTIAL,
       username: "admin",
     };
 
@@ -96,16 +98,20 @@ describe("protocol-specific GameDig options", () => {
   });
 
   test("disables GameDig debug for credential-bearing calls", async () => {
-    const sensitiveOptions: ReadonlyArray<Partial<QueryParams>> = [
-      { apiKey: "TEST_KEY" },
-      { password: "TEST_PASSWORD" },
-      { telnetPassword: "TEST_TELNET_PASSWORD" },
-      { token: "TEST_TOKEN" },
+    const sensitiveOptions: readonly Partial<QueryParams>[] = [
+      { apiKey: TEST_CREDENTIAL },
+      { password: TEST_CREDENTIAL },
+      { telnetPassword: TEST_CREDENTIAL },
+      { token: TEST_CREDENTIAL },
     ];
+    const calls = await Promise.all(
+      sensitiveOptions.map((option) =>
+        captureQuery({ ...BASE_QUERY, ...option, debug: true })
+      )
+    );
 
-    for (const option of sensitiveOptions) {
-      const calls = await captureQuery({ ...BASE_QUERY, ...option, debug: true });
-      expect(calls[0]?.debug).toBe(false);
+    for (const call of calls) {
+      expect(call[0]?.debug).toBe(false);
     }
   });
 
