@@ -17,7 +17,6 @@ const TELNET_PORT_ERROR =
   "Invalid telnetPort: expected an integer between 1 and 65535";
 const TIMEOUT_RELATIONSHIP_ERROR =
   "Invalid timeouts: attemptTimeout must be greater than socketTimeout";
-const POST_QUERY_ERROR = "Invalid POST /query body";
 const taggedError = Schema.TaggedError;
 
 export const SENSITIVE_QUERY_OPTIONS = [
@@ -251,7 +250,7 @@ const PostQueryOptionsSchema = Schema.Struct({
   ),
 });
 
-const PostQueryRequestSchema = Schema.Struct({
+export const PostQueryRequestSchema = Schema.Struct({
   host: requiredString("Missing required parameter: host"),
   options: Schema.optionalKey(PostQueryOptionsSchema),
   port: Schema.optionalKey(PostPortSchema),
@@ -259,6 +258,7 @@ const PostQueryRequestSchema = Schema.Struct({
 });
 
 export type QueryParams = typeof QueryParamsSchema.Type;
+export type PostQueryRequest = typeof PostQueryRequestSchema.Type;
 export type PublicQueryParams = Omit<
   QueryParams,
   "apiKey" | "password" | "telnetPassword" | "token"
@@ -278,9 +278,17 @@ const addOptionalQueryParam = (
   name: string
 ): void => {
   const value = searchParams.get(name)?.trim();
-  if (value !== undefined && value !== null) {
+  if (value !== undefined) {
     values[name] = value;
   }
+};
+
+const firstMessageLine = (message: string | undefined): string => {
+  if (message === undefined) {
+    return "Invalid query";
+  }
+  const lineEnd = message.indexOf("\n");
+  return lineEnd === -1 ? message : message.slice(0, lineEnd);
 };
 
 const checkTimeoutRelationship = (
@@ -304,7 +312,7 @@ export const findSensitiveQueryParameter = (
 export const parseQueryParams = (
   searchParams: URLSearchParams
 ): Result.Result<QueryParams, InvalidQueryError> => {
-  const values: Record<string, string> = {
+  const values = {
     attemptTimeout: queryParamOr(
       searchParams,
       "attemptTimeout",
@@ -340,7 +348,7 @@ export const parseQueryParams = (
     ),
     stripColors: queryParamOr(searchParams, "stripColors", "true"),
     type: queryParamOr(searchParams, "type", ""),
-  };
+  } satisfies Record<string, string>;
 
   for (const name of [
     "accountId",
@@ -362,48 +370,40 @@ export const parseQueryParams = (
   return Result.flatMap(
     Result.mapError(
       Schema.decodeUnknownResult(QueryParamsSchema)(values),
-      (failure) =>
-        invalidQuery(failure.message?.split("\n")[0] ?? "Invalid query")
+      (failure) => invalidQuery(firstMessageLine(failure.message))
     ),
     checkTimeoutRelationship
   );
 };
 
 export const parsePostQuery = (
-  unknownRequest: unknown
+  request: PostQueryRequest
 ): Result.Result<QueryParams, InvalidQueryError> => {
-  const decoded = Result.mapError(
-    Schema.decodeUnknownResult(PostQueryRequestSchema)(unknownRequest),
-    () => invalidQuery(POST_QUERY_ERROR)
-  );
+  const options = request.options ?? {};
+  const queryWithoutPort: QueryParams = {
+    attemptTimeout: options.attemptTimeout ?? DEFAULT_ATTEMPT_TIMEOUT_MS,
+    checkOldIDs: options.checkOldIDs ?? false,
+    debug: options.debug ?? false,
+    givenPortOnly: options.givenPortOnly ?? false,
+    host: request.host,
+    ipFamily: options.ipFamily ?? 0,
+    maxRetries: options.maxRetries ?? DEFAULT_MAX_RETRIES,
+    noBreadthOrder: options.noBreadthOrder ?? false,
+    requestPlayers: options.requestPlayers ?? true,
+    requestPlayersRequired: options.requestPlayersRequired ?? false,
+    requestRules: options.requestRules ?? false,
+    requestRulesRequired: options.requestRulesRequired ?? false,
+    socketTimeout: options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT_MS,
+    stripColors: options.stripColors ?? true,
+    type: request.type,
+    ...options,
+  };
+  const query =
+    request.port === undefined
+      ? queryWithoutPort
+      : { ...queryWithoutPort, port: request.port };
 
-  return Result.flatMap(decoded, (request) => {
-    const options = request.options ?? {};
-    const queryWithoutPort: QueryParams = {
-      attemptTimeout: options.attemptTimeout ?? DEFAULT_ATTEMPT_TIMEOUT_MS,
-      checkOldIDs: options.checkOldIDs ?? false,
-      debug: options.debug ?? false,
-      givenPortOnly: options.givenPortOnly ?? false,
-      host: request.host,
-      ipFamily: options.ipFamily ?? 0,
-      maxRetries: options.maxRetries ?? DEFAULT_MAX_RETRIES,
-      noBreadthOrder: options.noBreadthOrder ?? false,
-      requestPlayers: options.requestPlayers ?? true,
-      requestPlayersRequired: options.requestPlayersRequired ?? false,
-      requestRules: options.requestRules ?? false,
-      requestRulesRequired: options.requestRulesRequired ?? false,
-      socketTimeout: options.socketTimeout ?? DEFAULT_SOCKET_TIMEOUT_MS,
-      stripColors: options.stripColors ?? true,
-      type: request.type,
-      ...options,
-    };
-    const query =
-      request.port === undefined
-        ? queryWithoutPort
-        : { ...queryWithoutPort, port: request.port };
-
-    return checkTimeoutRelationship(query);
-  });
+  return checkTimeoutRelationship(query);
 };
 
 export const toPublicQueryParams = ({
