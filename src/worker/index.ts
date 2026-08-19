@@ -10,7 +10,15 @@ export class GameDigContainer extends Container {
   override enableInternet = true;
 }
 
-const allowedPaths = new Set(["/health", "/query"]);
+const isAllowedRequest = (request: Request, pathname: string): boolean => {
+  if (request.method === "POST") {
+    return pathname === "/query";
+  }
+  if (request.method !== "GET") {
+    return false;
+  }
+  return pathname === "/health" || pathname === "/query";
+};
 
 export default {
   fetch(
@@ -18,7 +26,7 @@ export default {
     env: InferEnv<typeof Worker>
   ): Response | Promise<Response> {
     const url = new URL(request.url);
-    if (request.method !== "GET" || !allowedPaths.has(url.pathname)) {
+    if (!isAllowedRequest(request, url.pathname)) {
       return Response.json(
         {
           error: {

@@ -18,10 +18,20 @@ interface GameDigServiceDefinition {
   ) => Effect.Effect<GameDigResult, GameDigError>;
 }
 
+const hasSensitiveOptions = (input: QueryParams): boolean =>
+  input.apiKey !== undefined ||
+  input.password !== undefined ||
+  input.telnetPassword !== undefined ||
+  input.token !== undefined;
+
 const toGameDigQueryOptions = (input: QueryParams): GameDigQueryOptions => ({
   ...input,
+  debug: hasSensitiveOptions(input) ? false : input.debug,
   portCache: false,
 });
+
+const safeFailureCause = (cause: unknown): string =>
+  cause instanceof Error ? cause.name : "Unknown GameDig failure";
 
 export class GameDigService extends Context.Service<
   GameDigService,
@@ -52,14 +62,11 @@ export class GameDigService extends Context.Service<
             const externalResult = yield* Effect.tryPromise({
               catch: (cause) =>
                 new GameDigError({
-                  cause,
+                  cause: safeFailureCause(cause),
                   elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
                   ...queryContext,
                   kind: "query",
-                  message:
-                    cause instanceof Error
-                      ? cause.message
-                      : "GameDig query failed",
+                  message: "GameDig query failed",
                 }),
               try: () => runGameDigQuery(toGameDigQueryOptions(input)),
             });
