@@ -16,7 +16,11 @@ export const createRequestId = (): string => crypto.randomUUID();
 
 export const readInternalRequestId = (request: Request): string | undefined => {
   const value = request.headers.get(INTERNAL_REQUEST_ID_HEADER);
-  if (value === null || value.length !== 36 || !REQUEST_ID_PATTERN.test(value)) {
+  if (
+    value === null ||
+    value.length !== 36 ||
+    !REQUEST_ID_PATTERN.test(value)
+  ) {
     return undefined;
   }
   return value;
