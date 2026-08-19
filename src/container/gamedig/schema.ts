@@ -24,9 +24,7 @@ const PasswordSchema = Schema.Union([Schema.Boolean, PasswordStringSchema]);
 
 const GameDigPlayerSchema = Schema.Struct({
   name: Schema.String,
-  raw: UnknownRecordSchema.pipe(
-    Schema.withDecodingDefault(Effect.succeed({}))
-  ),
+  raw: UnknownRecordSchema.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 });
 
 export const GameDigResultSchema = Schema.Struct({
