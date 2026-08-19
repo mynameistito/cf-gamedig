@@ -29,6 +29,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Show formatter diff
+        run: |
+          ./node_modules/.bin/oxfmt src/container/gamedig/errors.ts src/container/query-params.ts
+          git diff -- src/container/gamedig/errors.ts src/container/query-params.ts
+          git checkout -- src/container/gamedig/errors.ts src/container/query-params.ts
+
       - name: Typecheck
         run: bun run typecheck
 
