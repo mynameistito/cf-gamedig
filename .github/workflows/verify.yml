@@ -27,11 +27,6 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Show formatter diff
-        run: |
-          bunx oxfmt src/container/server.ts test/request-security.test.ts
-          git diff -- src/container/server.ts test/request-security.test.ts
-
       - name: Check
         run: bun run check
 
