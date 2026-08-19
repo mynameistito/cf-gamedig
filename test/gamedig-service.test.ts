@@ -23,7 +23,7 @@ const BASE_QUERY: QueryParams = {
   requestPlayersRequired: false,
   requestRules: false,
   requestRulesRequired: false,
-  socketTimeout: 2_000,
+  socketTimeout: 2000,
   stripColors: true,
   type: "minecraft",
 };
@@ -83,7 +83,7 @@ describe("GameDigService", () => {
       requestPlayersRequired: true,
       requestRules: true,
       requestRulesRequired: true,
-      socketTimeout: 5_000,
+      socketTimeout: 5000,
       stripColors: false,
       type: "counterstrike2",
     };
@@ -173,7 +173,7 @@ describe("GameDigService", () => {
 
   test("always disables portCache and never forwards listenUdpPort", async () => {
     const { calls } = await queryWithFake(BASE_QUERY, 27_015);
-    const call = calls[0];
+    const [call] = calls;
 
     expect(call?.portCache).toBe(false);
     expect(Object.hasOwn(call ?? {}, "listenUdpPort")).toBe(false);
