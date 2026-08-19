@@ -18,6 +18,11 @@ export interface ErrorResponseBody {
   };
   readonly diagnostics?: A2SDiagnostics;
   readonly elapsedMs?: number;
+  readonly query?: {
+    readonly type: string;
+    readonly host: string;
+    readonly port: number;
+  };
 }
 
 /** Convert a typed A2S failure to its safe HTTP representation. */
@@ -33,6 +38,7 @@ export const mapA2SError = (error: A2SError): ErrorResponseBody => ({
 export const mapGameDigError = (error: GameDigError): ErrorResponseBody => ({
   elapsedMs: error.elapsedMs,
   error: { message: error.message, type: error._tag },
+  query: { host: error.host, port: error.port, type: error.type },
   stage: "gamedig",
   success: false,
 });

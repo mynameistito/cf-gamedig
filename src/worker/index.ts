@@ -22,7 +22,7 @@ export class KzgContainer extends Container<ContainerEnvironment> {
   };
 }
 
-const routes = new Set(["/health", "/raw-a2s", "/gamedig"]);
+const routes = new Set(["/health", "/raw-a2s", "/query"]);
 
 export default {
   fetch(
@@ -35,7 +35,7 @@ export default {
         Response.json(
           {
             error: {
-              message: "Supported routes: /health, /raw-a2s, /gamedig",
+              message: "Supported routes: /health, /raw-a2s, /query",
               type: "NotFound",
             },
             success: false,
