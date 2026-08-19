@@ -12,7 +12,12 @@ export class GameDigContainer extends Container {
   override enableInternet = true;
 
   override onStart(this: GameDigContainer): void {
-    console.info(JSON.stringify({ event: "container_lifecycle_started" }));
+    console.info(
+      JSON.stringify({
+        containerClass: this.constructor.name,
+        event: "container_lifecycle_started",
+      })
+    );
   }
 
   override onStop(
@@ -21,6 +26,7 @@ export class GameDigContainer extends Container {
   ): void {
     console.info(
       JSON.stringify({
+        containerClass: this.constructor.name,
         event: "container_lifecycle_stopped",
         exitCode,
         reason,
@@ -32,7 +38,12 @@ export class GameDigContainer extends Container {
     this: GameDigContainer,
     ...args: Parameters<Container["onError"]>
   ): never {
-    console.error(JSON.stringify({ event: "container_lifecycle_error" }));
+    console.error(
+      JSON.stringify({
+        containerClass: this.constructor.name,
+        event: "container_lifecycle_error",
+      })
+    );
     throw args[0];
   }
 }
