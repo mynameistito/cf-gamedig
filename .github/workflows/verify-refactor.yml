@@ -1,6 +1,7 @@
 name: Verify refactor
 
 on:
+  pull_request:
   push:
     branches:
       - agent/thin-effect-structure
