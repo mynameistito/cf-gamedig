@@ -22,7 +22,7 @@ const GivenPortOnlySchema = Schema.Literals(["false", "true"]).pipe(
       encode: (value) => (value ? "true" : "false"),
     })
   ),
-  Schema.withDecodingDefault(Effect.succeed(false))
+  Schema.withDecodingDefault(Effect.succeed("false"))
 );
 
 const PortSchema = Schema.NumberFromString.pipe(
