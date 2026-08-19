@@ -95,6 +95,65 @@ describe("GameDig boundary schemas", () => {
     expect(decoded.password).toBe(false);
   });
 
+  test("normalizes Teamspeak 3 numeric string player counts", () => {
+    const decoded = Schema.decodeUnknownSync(GameDigResultSchema)({
+      ...baseResult,
+      maxplayers: "32",
+      numplayers: "3",
+    });
+    expect(decoded.numplayers).toBe(3);
+    expect(decoded.maxplayers).toBe(32);
+  });
+
+  test("normalizes Quake-style string counts and password values", () => {
+    const decoded = Schema.decodeUnknownSync(GameDigResultSchema)({
+      ...baseResult,
+      maxplayers: "16",
+      numplayers: "4",
+      password: "1",
+    });
+    expect(decoded.numplayers).toBe(4);
+    expect(decoded.maxplayers).toBe(16);
+    expect(decoded.password).toBe(true);
+  });
+
+  test("normalizes epic-style string password values", () => {
+    const decoded = Schema.decodeUnknownSync(GameDigResultSchema)({
+      ...baseResult,
+      password: "false",
+    });
+    expect(decoded.password).toBe(false);
+  });
+
+  test("mirrors GameDig trueTest semantics for string passwords", () => {
+    const decodePassword = (password: string): boolean =>
+      Schema.decodeUnknownSync(GameDigResultSchema)({
+        ...baseResult,
+        password,
+      }).password;
+
+    expect(decodePassword("true")).toBe(true);
+    expect(decodePassword("TRUE")).toBe(true);
+    expect(decodePassword("yes")).toBe(true);
+    expect(decodePassword("YeS")).toBe(true);
+    expect(decodePassword("1")).toBe(true);
+    expect(decodePassword("false")).toBe(false);
+    expect(decodePassword("no")).toBe(false);
+    expect(decodePassword("0")).toBe(false);
+    expect(decodePassword("anything")).toBe(false);
+    expect(decodePassword(" true ")).toBe(false);
+  });
+
+  test("defaults omitted player and bot raw data", () => {
+    const decoded = Schema.decodeUnknownSync(GameDigResultSchema)({
+      ...baseResult,
+      bots: [{ name: "bot" }],
+      players: [{ name: "x" }],
+    });
+    expect(decoded.players).toEqual([{ name: "x", raw: {} }]);
+    expect(decoded.bots).toEqual([{ name: "bot", raw: {} }]);
+  });
+
   test("accepts Valve-style raw data", () => {
     const decoded = Schema.decodeUnknownSync(GameDigResultSchema)({
       ...baseResult,
@@ -109,6 +168,7 @@ describe("GameDig boundary schemas", () => {
     });
     expect(decoded.raw.appId).toBe(730);
     expect(decoded.raw.tags).toEqual(["empty", "secure"]);
+    expect(decoded.players[0]?.raw).toEqual({ score: 3, time: 900 });
   });
 
   test("accepts non-Valve-style raw data", () => {
@@ -146,11 +206,17 @@ describe("GameDig boundary schemas", () => {
     ).toThrow();
   });
 
-  test("rejects an invalid response shape", () => {
+  test("rejects invalid non-numeric player counts", () => {
     expect(() =>
       Schema.decodeUnknownSync(GameDigResultSchema)({
         ...baseResult,
-        numplayers: "12",
+        numplayers: "twelve",
+      })
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(GameDigResultSchema)({
+        ...baseResult,
+        maxplayers: "many",
       })
     ).toThrow();
   });
