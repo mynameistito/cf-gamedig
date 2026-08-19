@@ -76,33 +76,41 @@ const parseJson = (text: string): Result.Result<unknown, InvalidJsonError> => {
   }
 };
 
+const readBodyChunk = async (
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) => {
+  try {
+    return Result.succeed(await reader.read());
+  } catch {
+    return Result.fail(
+      new InvalidJsonError({ message: "Unable to read JSON request body" })
+    );
+  }
+};
+
 const readBodyChunks = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
   collected: CollectedBody
 ): Promise<
   Result.Result<CollectedBody, InvalidJsonError | PayloadTooLargeError>
 > => {
-  let chunk: ReadableStreamDefaultReadResult<Uint8Array>;
-  try {
-    chunk = await reader.read();
-  } catch {
-    return Result.fail(
-      new InvalidJsonError({ message: "Unable to read JSON request body" })
-    );
+  const chunk = await readBodyChunk(reader);
+  if (Result.isFailure(chunk)) {
+    return chunk;
   }
 
-  if (chunk.done) {
+  if (chunk.success.done) {
     return Result.succeed(collected);
   }
 
-  const byteLength = collected.byteLength + chunk.value.byteLength;
+  const byteLength = collected.byteLength + chunk.success.value.byteLength;
   if (byteLength > MAX_POST_BODY_BYTES) {
     return Result.fail(payloadTooLarge());
   }
 
   return readBodyChunks(reader, {
     byteLength,
-    chunks: [...collected.chunks, chunk.value],
+    chunks: [...collected.chunks, chunk.success.value],
   });
 };
 
