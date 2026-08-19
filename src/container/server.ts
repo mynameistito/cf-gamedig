@@ -12,10 +12,7 @@ import {
   toPublicQueryParams,
 } from "./query-params.ts";
 import { PayloadTooLargeError } from "./request-errors.ts";
-import {
-  MAX_POST_BODY_BYTES,
-  MAX_POST_BODY_CHUNKS,
-} from "./request-limits.ts";
+import { MAX_POST_BODY_BYTES, MAX_POST_BODY_CHUNKS } from "./request-limits.ts";
 import {
   applyTargetPolicy,
   DEFAULT_TARGET_POLICY_MODE,
