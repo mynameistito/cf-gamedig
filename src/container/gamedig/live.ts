@@ -3,6 +3,7 @@ import { GameDig } from "gamedig";
 
 import { GameServerStatusSchema } from "../../shared/schema.ts";
 import { GameDigQueryError, GameDigResponseError } from "./errors.ts";
+import { GameDigResultSchema } from "./schema.ts";
 import { GameDigService } from "./service.ts";
 
 const query = Effect.fn("GameDigService.query")(function* runGameDigQuery(
@@ -15,7 +16,7 @@ const query = Effect.fn("GameDigService.query")(function* runGameDigQuery(
   yield* Effect.logInfo("GameDig query started").pipe(
     Effect.annotateLogs({ host, port, type })
   );
-  const result = yield* Effect.tryPromise({
+  const externalResult = yield* Effect.tryPromise({
     catch: (cause) =>
       new GameDigQueryError({
         elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
@@ -34,22 +35,23 @@ const query = Effect.fn("GameDigService.query")(function* runGameDigQuery(
       }),
   });
 
-  const candidate = {
-    bots: result.bots.length,
-    connect: result.connect || undefined,
-    map: result.map,
-    maxPlayers: result.maxplayers,
-    name: result.name,
-    online: true as const,
-    ping: result.ping,
-    players: result.numplayers,
-    queryPort: result.queryPort || undefined,
-    version: result.version || undefined,
-  };
-
-  const status = yield* Schema.decodeUnknownEffect(GameServerStatusSchema)(
-    candidate
+  const status = yield* Schema.decodeUnknownEffect(GameDigResultSchema)(
+    externalResult
   ).pipe(
+    Effect.flatMap((result) =>
+      Schema.decodeUnknownEffect(GameServerStatusSchema)({
+        bots: result.bots.length,
+        connect: result.connect || undefined,
+        map: result.map,
+        maxPlayers: result.maxplayers,
+        name: result.name,
+        online: true as const,
+        ping: result.ping,
+        players: result.numplayers,
+        queryPort: result.queryPort || undefined,
+        version: result.version || undefined,
+      })
+    ),
     Effect.mapError(
       () =>
         new GameDigResponseError({

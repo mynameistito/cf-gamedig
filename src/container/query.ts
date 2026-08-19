@@ -1,45 +1,53 @@
-import { games } from "gamedig";
+import { Result, Schema } from "effect";
+
+const requiredString = (message: string) =>
+  Schema.String.pipe(
+    Schema.annotateKey({ messageMissingKey: message }),
+    Schema.check(Schema.isMinLength(1, { message }))
+  );
+
+const PortSchema = Schema.NumberFromString.pipe(
+  Schema.check(
+    Schema.isInt({
+      message: "Invalid port: expected an integer between 1 and 65535",
+    })
+  ),
+  Schema.check(
+    Schema.isBetween(
+      { maximum: 65_535, minimum: 1 },
+      { message: "Invalid port: expected an integer between 1 and 65535" }
+    )
+  )
+);
 
 /** Validated parameters for the GameDig `/query` route. */
-export interface QueryParams {
-  readonly type: string;
-  readonly host: string;
-  readonly port: number;
-}
+export const QueryParamsSchema = Schema.Struct({
+  host: requiredString("Missing required parameter: host"),
+  port: PortSchema,
+  type: requiredString("Missing required parameter: type"),
+});
+
+export type QueryParams = typeof QueryParamsSchema.Type;
 
 export type ParseQueryParamsResult =
   | { readonly ok: true; readonly params: QueryParams }
   | { readonly ok: false; readonly message: string };
 
-/** GameDig is keyed by these identifiers and also accepts `protocol-` prefixes. */
-const isKnownGameType = (type: string): boolean =>
-  Object.hasOwn(games, type) || type.startsWith("protocol-");
-
 /** Parse and validate `?type=&host=&port=` for the `/query` route. */
 export const parseQueryParams = (
   searchParams: URLSearchParams
 ): ParseQueryParamsResult => {
-  const type = searchParams.get("type")?.trim() ?? "";
-  if (!type) {
-    return { message: "Missing required parameter: type", ok: false };
+  const raw = {
+    host: searchParams.get("host")?.trim() ?? "",
+    port: searchParams.get("port")?.trim() ?? "",
+    type: searchParams.get("type")?.trim() ?? "",
+  };
+  const result = Schema.decodeUnknownResult(QueryParamsSchema)(raw);
+  if (Result.isSuccess(result)) {
+    return { ok: true, params: result.success };
   }
-  if (!isKnownGameType(type)) {
-    return { message: `Unknown game type: ${type}`, ok: false };
-  }
-
-  const host = searchParams.get("host")?.trim() ?? "";
-  if (!host) {
-    return { message: "Missing required parameter: host", ok: false };
-  }
-
-  const rawPort = searchParams.get("port")?.trim() ?? "";
-  const port = Number(rawPort);
-  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    return {
-      message: "Invalid port: expected an integer between 1 and 65535",
-      ok: false,
-    };
-  }
-
-  return { ok: true, params: { host, port, type } };
+  return {
+    message: result.failure.message?.split("\n")[0] ?? "Invalid query",
+    ok: false,
+  };
 };
