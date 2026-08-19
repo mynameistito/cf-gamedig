@@ -105,9 +105,9 @@ describe("parseQueryParams", () => {
 
   test("accepts maxRetries boundaries", () => {
     expect(parseOk(`${BASE_QUERY}&maxRetries=0`).maxRetries).toBe(0);
-    expect(
-      parseOk(`${BASE_QUERY}&maxRetries=${MAX_RETRIES}`).maxRetries
-    ).toBe(MAX_RETRIES);
+    expect(parseOk(`${BASE_QUERY}&maxRetries=${MAX_RETRIES}`).maxRetries).toBe(
+      MAX_RETRIES
+    );
   });
 
   test("accepts timeout upper bounds when their relationship is valid", () => {
@@ -218,9 +218,9 @@ describe("parseQueryParams", () => {
 
     for (const option of ["socketTimeout", "attemptTimeout"]) {
       for (const value of ["abc", "0", "-1", "1.5"]) {
-        expect(Result.isFailure(parse(`${BASE_QUERY}&${option}=${value}`))).toBe(
-          true
-        );
+        expect(
+          Result.isFailure(parse(`${BASE_QUERY}&${option}=${value}`))
+        ).toBe(true);
       }
     }
   });
