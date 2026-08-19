@@ -10,7 +10,8 @@ import { makeRequestHandler } from "../src/container/server.ts";
 const findOldOnlyId = (): string => {
   const oldOnlyEntry = Object.values(games).find(
     (game) =>
-      game.extra?.old_id !== undefined && !Object.hasOwn(games, game.extra.old_id)
+      game.extra?.old_id !== undefined &&
+      !Object.hasOwn(games, game.extra.old_id)
   );
   const oldId = oldOnlyEntry?.extra?.old_id;
   if (oldId === undefined) {
@@ -43,8 +44,8 @@ describe("GameDig game type parsing", () => {
   });
 
   test("matches installed GameDig registries", () => {
-    const currentId = Object.keys(games)[0];
-    const protocolId = Object.keys(protocols)[0];
+    const [currentId] = Object.keys(games);
+    const [protocolId] = Object.keys(protocols);
     expect(currentId).toBeDefined();
     expect(protocolId).toBeDefined();
     if (currentId === undefined || protocolId === undefined) {
