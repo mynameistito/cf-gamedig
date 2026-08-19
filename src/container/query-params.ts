@@ -3,9 +3,10 @@ import { Result, Schema } from "effect";
 const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
 const taggedError = Schema.TaggedError;
 
-class InvalidQueryError extends taggedError<InvalidQueryError>()("InvalidQuery", {
-  message: Schema.String,
-}) {}
+class InvalidQueryError extends taggedError<InvalidQueryError>()(
+  "InvalidQuery",
+  { message: Schema.String }
+) {}
 
 const requiredString = (message: string) =>
   Schema.String.pipe(
