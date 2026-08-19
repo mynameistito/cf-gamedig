@@ -1,5 +1,7 @@
 import { Result, Schema } from "effect";
 
+const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
+
 const requiredString = (message: string) =>
   Schema.String.pipe(
     Schema.annotateKey({ messageMissingKey: message }),
@@ -7,16 +9,9 @@ const requiredString = (message: string) =>
   );
 
 const PortSchema = Schema.NumberFromString.pipe(
+  Schema.check(Schema.isInt({ message: PORT_ERROR })),
   Schema.check(
-    Schema.isInt({
-      message: "Invalid port: expected an integer between 1 and 65535",
-    })
-  ),
-  Schema.check(
-    Schema.isBetween(
-      { maximum: 65_535, minimum: 1 },
-      { message: "Invalid port: expected an integer between 1 and 65535" }
-    )
+    Schema.isBetween({ maximum: 65_535, minimum: 1 }, { message: PORT_ERROR })
   )
 );
 
@@ -29,25 +24,17 @@ export const QueryParamsSchema = Schema.Struct({
 
 export type QueryParams = typeof QueryParamsSchema.Type;
 
-export type ParseQueryParamsResult =
-  | { readonly ok: true; readonly params: QueryParams }
-  | { readonly ok: false; readonly message: string };
-
 /** Parse and validate `?type=&host=&port=` for the `/query` route. */
 export const parseQueryParams = (
   searchParams: URLSearchParams
-): ParseQueryParamsResult => {
+): Result.Result<QueryParams, string> => {
   const raw = {
     host: searchParams.get("host")?.trim() ?? "",
     port: searchParams.get("port")?.trim() ?? "",
     type: searchParams.get("type")?.trim() ?? "",
   };
-  const result = Schema.decodeUnknownResult(QueryParamsSchema)(raw);
-  if (Result.isSuccess(result)) {
-    return { ok: true, params: result.success };
-  }
-  return {
-    message: result.failure.message?.split("\n")[0] ?? "Invalid query",
-    ok: false,
-  };
+  return Result.mapError(
+    Schema.decodeUnknownResult(QueryParamsSchema)(raw),
+    (failure) => failure.message?.split("\n")[0] ?? "Invalid query"
+  );
 };

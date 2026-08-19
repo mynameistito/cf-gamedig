@@ -6,7 +6,6 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 COPY src/container ./src/container
-COPY src/shared ./src/shared
 
 ENV PORT=8080
 EXPOSE 8080
