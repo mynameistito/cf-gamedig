@@ -5,10 +5,11 @@ const taggedError = Schema.TaggedError;
 export class GameDigError extends taggedError<GameDigError>()("GameDigError", {
   cause: Schema.Unknown,
   elapsedMs: Schema.Number,
+  givenPortOnly: Schema.Boolean,
   host: Schema.String,
   kind: Schema.Literals(["query", "response"]),
   message: Schema.String,
-  port: Schema.Number,
+  port: Schema.optionalKey(Schema.Number),
   type: Schema.String,
 }) {}
 
@@ -19,8 +20,9 @@ interface GameDigErrorResponse {
     readonly type: "GameDigQueryError" | "GameDigResponseError";
   };
   readonly query: {
+    readonly givenPortOnly: boolean;
     readonly host: string;
-    readonly port: number;
+    readonly port?: number;
     readonly type: string;
   };
   readonly stage: "gamedig";
@@ -34,7 +36,12 @@ export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => ({
     type:
       error.kind === "response" ? "GameDigResponseError" : "GameDigQueryError",
   },
-  query: { host: error.host, port: error.port, type: error.type },
+  query: {
+    givenPortOnly: error.givenPortOnly,
+    host: error.host,
+    ...(error.port === undefined ? {} : { port: error.port }),
+    type: error.type,
+  },
   stage: "gamedig",
   success: false,
 });
