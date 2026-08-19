@@ -10,9 +10,15 @@ export class GameDigContainer extends Container {
   override enableInternet = true;
 }
 
-const isAllowedRequest = (request: Request, pathname: string): boolean =>
-  (request.method === "GET" && (pathname === "/health" || pathname === "/query")) ||
-  (request.method === "POST" && pathname === "/query");
+const isAllowedRequest = (request: Request, pathname: string): boolean => {
+  if (request.method === "POST") {
+    return pathname === "/query";
+  }
+  if (request.method !== "GET") {
+    return false;
+  }
+  return pathname === "/health" || pathname === "/query";
+};
 
 export default {
   fetch(
