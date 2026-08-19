@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/issue-18-generic-query-options
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
