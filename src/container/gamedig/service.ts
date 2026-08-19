@@ -40,6 +40,7 @@ export class GameDigService extends Context.Service<
         const externalResult = yield* Effect.tryPromise({
           catch: (cause) =>
             new GameDigQueryError({
+              cause,
               elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
               host,
               message:
@@ -60,8 +61,9 @@ export class GameDigService extends Context.Service<
           externalResult
         ).pipe(
           Effect.mapError(
-            () =>
+            (cause) =>
               new GameDigResponseError({
+                cause,
                 elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
                 host,
                 message: "GameDig returned an invalid server result",
