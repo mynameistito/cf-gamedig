@@ -1,5 +1,6 @@
 import { Effect, ManagedRuntime, Result, Schema } from "effect";
 
+import { parseGameTypeQuery } from "./game-type.ts";
 import { mapGameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";
 import type { QueryParams } from "./query-params.ts";
@@ -79,6 +80,17 @@ export const makeRequestHandler =
   async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
 
+    const executeParsedQuery = (query: QueryParams) => {
+      const parsedGameType = parseGameTypeQuery(query);
+      if (Result.isFailure(parsedGameType)) {
+        return invalidQueryResponse(
+          parsedGameType.failure.message,
+          parsedGameType.failure._tag
+        );
+      }
+      return executeQuery(parsedGameType.success);
+    };
+
     if (
       request.method !== "GET" &&
       !(request.method === "POST" && url.pathname === "/query")
@@ -114,7 +126,7 @@ export const makeRequestHandler =
               query.failure._tag
             );
           }
-          return executeQuery(query.success);
+          return executeParsedQuery(query.success);
         }
 
         if (!hasJsonContentType(request)) {
@@ -149,7 +161,7 @@ export const makeRequestHandler =
             query.failure._tag
           );
         }
-        return executeQuery(query.success);
+        return executeParsedQuery(query.success);
       }
       default: {
         return respondJson(

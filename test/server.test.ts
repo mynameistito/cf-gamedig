@@ -217,7 +217,7 @@ describe("/query transport", () => {
             apiKey: TEST_CREDENTIAL,
             serverId: "42",
           },
-          type: "scpsl",
+          type: "ssl",
         },
       ],
       [
@@ -233,7 +233,7 @@ describe("/query transport", () => {
         {
           host: "terraria.example.com",
           options: { token: TEST_CREDENTIAL },
-          type: "terraria",
+          type: "terrariatshock",
         },
       ],
       [
@@ -253,7 +253,7 @@ describe("/query transport", () => {
             telnetPassword: TEST_CREDENTIAL,
             telnetPort: 8081,
           },
-          type: "7daystodie",
+          type: "sdtd",
         },
       ],
       [

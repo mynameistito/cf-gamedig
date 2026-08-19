@@ -17,6 +17,7 @@ Client ──HTTPS──▶ Cloudflare Worker (edge router) ──internal HTTP�
 - `src/container/index.ts` — Container bootstrap; owns the Bun server and runtime lifecycle.
 - `src/container/server.ts` — the Container's HTTP API; validates requests and translates them into Effect programs.
 - `src/container/query-params.ts` — parses and validates the allow-listed GET and POST `/query` inputs into one typed GameDig query object.
+- `src/container/game-type.ts` — validates normalized game/protocol IDs directly against the registries exported by the installed GameDig runtime before networking.
 - `src/container/gamedig/` — GameDig query service with a normalized, schema-validated response, typed errors, and their HTTP projection.
 
 ## Endpoints
@@ -35,13 +36,25 @@ curl "https://<deployment>/query?type=counterstrike2&host=example.com&requestRul
 curl "https://<deployment>/query?type=minecraft&host=example.com&socketTimeout=5000&attemptTimeout=15000&maxRetries=2"
 ```
 
+### Choosing `type`
+
+`type` is checked locally before GameDig can perform DNS, UDP, TCP, or HTTP work. Surrounding whitespace is trimmed. An unknown ID returns `400 InvalidQuery` and does not invoke the GameDig query function.
+
+GameDig 5.3.3 is the source of truth. This wrapper reads the `games` and `protocols` registries exported by the installed `gamedig` package instead of maintaining a copied list of hundreds of IDs. The package's bundled `GAMES_LIST.md` is the human-readable list for that installed version; GameDig's upstream [games list](https://github.com/gamedig/node-gamedig/blob/master/GAMES_LIST.md) is useful when browsing the project, but the installed runtime registry controls this service.
+
+- **Current game IDs:** use a key from GameDig's `games` registry, such as `minecraft` or `counterstrike2`.
+- **Legacy IDs:** GameDig stores some former IDs as `extra.old_id`. They are rejected by default. Set `checkOldIDs=true` to allow an old-only ID to resolve the same way GameDig 5.3.3 resolves it. A value that is also a current ID remains valid regardless of `checkOldIDs`.
+- **Protocol forcing:** use `protocol-<name>` only for a protocol exported by GameDig, for example `protocol-valve`. Unsupported protocol names are rejected locally rather than being allowed to fail later in GameDig's protocol resolver.
+
+The installed `@types/gamedig@5.0.3` declarations lag parts of GameDig 5.3.3 runtime behavior. Runtime GameDig is authoritative where they disagree; this project keeps the smallest local/runtime-accurate types needed instead of reshaping responses to stale declarations.
+
 ### GET `/query` parameters
 
 Only the parameters in this table are parsed and forwarded. Unknown URL parameters are ignored rather than being spread into GameDig.
 
 | Option | Input type | Default | Validation / limit | GameDig behavior |
 | --- | --- | --- | --- | --- |
-| `type` | string | required | Non-empty after trimming. | Logical GameDig game/protocol id. |
+| `type` | string | required | Must resolve to an installed current ID, allowed legacy ID, or supported `protocol-*` ID after trimming. | Logical GameDig game/protocol id. |
 | `host` | string | required | Non-empty after trimming. | Required logical host. It remains available to protocols even when `address` is supplied. |
 | `address` | string | unset | If supplied, must be non-empty after trimming. | Connection-address override. GameDig skips its own DNS resolution when this is present; it does not replace `host`. |
 | `port` | integer | GameDig/game default | `1`–`65535`. | Supplied game/query port. When omitted, GameDig can resolve game defaults, query ports, and offsets. |
@@ -53,8 +66,8 @@ Only the parameters in this table are parsed and forwarded. Unknown URL paramete
 | `debug` | boolean | `false` | Exactly `true` or `false`. | Enables GameDig debug logging for requests without credentials. |
 | `stripColors` | boolean | `true` | Exactly `true` or `false`. | Controls color stripping in GameDig protocols that implement it. |
 | `noBreadthOrder` | boolean | `false` | Exactly `true` or `false`. | Switches GameDig retry ordering from breadth-first to per-attempt retries. |
-| `checkOldIDs` | boolean | `false` | Exactly `true` or `false`. | Allows GameDig to resolve legacy game IDs. |
-| `requestRules` | boolean | `false` | Exactly `true` or `false`. | Requests Valve rules when the protocol supports them. |
+| `checkOldIDs` | boolean | `false` | Exactly `true` or `false`. | Allows GameDig to resolve legacy `old_id` values. |
+| `requestRules` | boolean | `false` | Exactly `true` or `false`. | Requests Valve rules when the protocol supports them; returned rules are under `server.raw.rules`. |
 | `requestPlayers` | boolean | `true` | Exactly `true` or `false`. | Enables/disables the Valve player-list request. |
 | `requestRulesRequired` | boolean | `false` | Exactly `true` or `false`. | Makes a requested Valve rules response required instead of tolerating its timeout. |
 | `requestPlayersRequired` | boolean | `false` | Exactly `true` or `false`. | Makes a requested Valve player response required instead of tolerating its timeout. |
@@ -63,7 +76,9 @@ The non-sensitive protocol-specific options documented below may also be supplie
 
 Boolean parsing is intentionally strict: values such as `1`, `0`, `yes`, `on`, or `TRUE` are rejected with `400 InvalidQuery`.
 
-`attemptTimeout` must always be greater than `socketTimeout`; invalid timeout relationships are rejected before GameDig is called. Retry and timeout caps are API safety limits and are intentionally lower than an unbounded caller-controlled value.
+`attemptTimeout` must always be greater than `socketTimeout`; invalid timeout relationships are rejected before GameDig is called. This service caps `maxRetries` at `3`, `socketTimeout` at `15000` ms, and `attemptTimeout` at `60000` ms. These are wrapper safety limits rather than GameDig's full theoretical range.
+
+`port` is optional. When it is omitted, GameDig uses the selected game's runtime metadata (`port`, `port_query`, and `port_query_offset`) to build query attempts. With `givenPortOnly=false` it may try the supplied/default/query/offset ports according to its resolver behavior; `givenPortOnly=true` restricts the attempt set to the supplied port. Because this service forces `portCache=false`, no successful query port is reused across requests.
 
 `ipFamily=6` is accepted and forwarded unchanged because `6` is a real GameDig 5.3.3 runtime value. IPv6 egress has not been verified for this Cloudflare Container deployment, so the API does not claim that IPv6 queries will succeed in every deployment. There is no silent IPv4 downgrade. When `address` is supplied, GameDig skips its DNS lookup, so `ipFamily` does not select an address for that request.
 
@@ -83,9 +98,9 @@ Use `Content-Type: application/json`. Core query identity stays at the top level
 }
 ```
 
-The `options` object accepts the same generic options as GET plus the protocol-specific options below. JSON values use their natural runtime types: numbers are JSON numbers and booleans are JSON booleans. Unknown properties are not forwarded into GameDig.
+The `options` object accepts the same generic options as GET plus the protocol-specific options below. JSON values use their natural runtime types: numbers are JSON numbers and booleans are JSON booleans. Unknown properties are not forwarded into GameDig. The top-level `type` is normalized and validated through the same installed GameDig registries as GET.
 
-Malformed JSON returns `400`. A missing or unsupported content type returns `415`. Invalid option types are rejected before GameDig is called.
+Malformed JSON returns `400`. A missing or unsupported content type returns `415`. Invalid option types and invalid game IDs are rejected before GameDig is called.
 
 Credentials are intentionally not accepted in URLs because URLs are routinely recorded by proxies, access logs, browser history, monitoring systems, and caches. Sensitive values are omitted from returned query metadata and wrapper errors/logging. GameDig 5.3.3 debug mode logs its complete options object, so this service automatically disables GameDig debug for any request carrying a sensitive option.
 
@@ -123,13 +138,13 @@ curl -X POST "https://<deployment>/query" \
 ```bash
 curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
-  --data '{"type":"scpsl","host":"example.com","options":{"accountId":"TEST_ACCOUNT","apiKey":"TEST_API_KEY","serverId":"42"}}'
+  --data '{"type":"ssl","host":"example.com","options":{"accountId":"TEST_ACCOUNT","apiKey":"TEST_API_KEY","serverId":"42"}}'
 ```
 
 ```bash
 curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
-  --data '{"type":"7daystodie","host":"example.com","options":{"telnetPort":8081,"telnetPassword":"TEST_TELNET_PASSWORD","moreData":true}}'
+  --data '{"type":"sdtd","host":"example.com","options":{"telnetPort":8081,"telnetPassword":"TEST_TELNET_PASSWORD","moreData":true}}'
 ```
 
 ```bash
@@ -137,6 +152,19 @@ curl -X POST "https://<deployment>/query" \
   -H "content-type: application/json" \
   --data '{"type":"satisfactory","host":"example.com","port":7777,"options":{"rejectUnauthorized":false,"token":"TEST_TOKEN"}}'
 ```
+
+### Response compatibility
+
+The stable wrapper server result follows the GameDig 5.3.3 runtime shape. In particular, each player and bot is represented as:
+
+```json
+{
+  "name": "Player name",
+  "raw": {}
+}
+```
+
+Protocol-specific player values such as score, ping, team, address, or other fields belong inside `player.raw`; they are not promoted to stale DefinitelyTyped-style top-level fields. Protocol-specific server data likewise remains in `server.raw`. When Valve rules are requested with `requestRules=true`, the rules object appears at `server.raw.rules` when the server/protocol supplies it.
 
 ### Internal GameDig options
 
@@ -219,6 +247,7 @@ bun alchemy logs --profile <profile> --filter cf-gamedig-container --since 30m -
 ## Notes
 
 - Alchemy's container stack pins Effect 4 prerelease tooling, and the app uses the same Effect 4 RC; only Effect and GameDig are installed in the runtime image.
+- GameDig 5.3.3 runtime behavior is authoritative for this wrapper when its behavior differs from the installed `@types/gamedig@5.0.3` declarations.
 
 ## Documentation
 
