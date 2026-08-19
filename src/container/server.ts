@@ -15,11 +15,12 @@ const json = <T>(body: T, status = 200): Response =>
     status,
   });
 
-const gameDigProgram = (params: QueryParams) =>
-  Effect.gen(function* runGameDig() {
-    const gameDig = yield* GameDigService;
-    return yield* gameDig.query(params.type, params.host, params.port);
-  });
+const gameDigProgram = Effect.fn("GameDigProgram")(function* runGameDig(
+  params: QueryParams
+) {
+  const gameDig = yield* GameDigService;
+  return yield* gameDig.query(params.type, params.host, params.port);
+});
 
 const runGameDig = async (params: QueryParams): Promise<Response> => {
   const result = await runtime.runPromise(
