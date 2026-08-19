@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema } from "effect";
+import { Clock, Effect, Layer, Schema } from "effect";
 import { GameDig } from "gamedig";
 
 import { GameServerStatusSchema } from "../../shared/schema.ts";
@@ -10,14 +10,15 @@ const query = Effect.fn("GameDigService.query")(function* runGameDigQuery(
   host: string,
   port: number
 ) {
-  const startedAt = Date.now();
+  const clock = yield* Clock.Clock;
+  const startedAt = clock.currentTimeMillisUnsafe();
   yield* Effect.logInfo("GameDig query started").pipe(
     Effect.annotateLogs({ host, port, type })
   );
   const result = yield* Effect.tryPromise({
     catch: (cause) =>
       new GameDigQueryError({
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
         host,
         message:
           cause instanceof Error ? cause.message : "GameDig query failed",
@@ -52,7 +53,7 @@ const query = Effect.fn("GameDigService.query")(function* runGameDigQuery(
     Effect.mapError(
       () =>
         new GameDigResponseError({
-          elapsedMs: Date.now() - startedAt,
+          elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
           host,
           message: "GameDig returned an invalid server status",
           port,
@@ -62,7 +63,7 @@ const query = Effect.fn("GameDigService.query")(function* runGameDigQuery(
   );
   yield* Effect.logInfo("GameDig query completed").pipe(
     Effect.annotateLogs({
-      elapsedMs: Date.now() - startedAt,
+      elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
       host,
       players: status.players,
       port,

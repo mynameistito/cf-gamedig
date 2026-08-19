@@ -14,20 +14,21 @@ export class GameDigContainer extends Container {
 const routes = new Set(["/health", "/query"]);
 
 export default {
-  fetch(request: Request, env: InferEnv<typeof Worker>): Promise<Response> {
+  fetch(
+    request: Request,
+    env: InferEnv<typeof Worker>
+  ): Response | Promise<Response> {
     const url = new URL(request.url);
     if (request.method !== "GET" || !routes.has(url.pathname)) {
-      return Promise.resolve(
-        Response.json(
-          {
-            error: {
-              message: "Supported routes: /health, /query",
-              type: "NotFound",
-            },
-            success: false,
+      return Response.json(
+        {
+          error: {
+            message: "Supported routes: /health, /query",
+            type: "NotFound",
           },
-          { status: 404 }
-        )
+          success: false,
+        },
+        { status: 404 }
       );
     }
 

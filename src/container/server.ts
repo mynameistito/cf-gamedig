@@ -22,8 +22,8 @@ const gameDigProgram = Effect.fn("GameDigProgram")(function* runGameDig(
   return yield* gameDig.query(params.type, params.host, params.port);
 });
 
-const runGameDig = async (params: QueryParams): Promise<Response> => {
-  const result = await runtime.runPromise(
+const runGameDig = (params: QueryParams): Promise<Response> =>
+  runtime.runPromise(
     gameDigProgram(params).pipe(
       Effect.match({
         onFailure: (error: GameDigError) => json(mapGameDigError(error), 504),
@@ -31,53 +31,45 @@ const runGameDig = async (params: QueryParams): Promise<Response> => {
       })
     )
   );
-  return result;
-};
 
 /** Handle the Container's small HTTP API without embedding query logic in transport code. */
-export const handleRequest = (request: Request): Promise<Response> => {
+export const handleRequest = (
+  request: Request
+): Response | Promise<Response> => {
   if (request.method !== "GET") {
-    return Promise.resolve(
-      json(
-        {
-          error: { message: "Use GET", type: "MethodNotAllowed" },
-          success: false,
-        },
-        405
-      )
+    return json(
+      {
+        error: { message: "Use GET", type: "MethodNotAllowed" },
+        success: false,
+      },
+      405
     );
   }
 
   switch (new URL(request.url).pathname) {
     case "/health": {
-      return Promise.resolve(
-        json({ service: "cf-gamedig-container", success: true })
-      );
+      return json({ service: "cf-gamedig-container", success: true });
     }
     case "/query": {
       const result = parseQueryParams(new URL(request.url).searchParams);
       if (!result.ok) {
-        return Promise.resolve(
-          json(
-            {
-              error: { message: result.message, type: "InvalidQuery" },
-              success: false,
-            },
-            400
-          )
+        return json(
+          {
+            error: { message: result.message, type: "InvalidQuery" },
+            success: false,
+          },
+          400
         );
       }
       return runGameDig(result.params);
     }
     default: {
-      return Promise.resolve(
-        json(
-          {
-            error: { message: "Route not found", type: "NotFound" },
-            success: false,
-          },
-          404
-        )
+      return json(
+        {
+          error: { message: "Route not found", type: "NotFound" },
+          success: false,
+        },
+        404
       );
     }
   }
