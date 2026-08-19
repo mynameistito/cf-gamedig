@@ -11,6 +11,12 @@ import {
   PostQueryRequestSchema,
   toPublicQueryParams,
 } from "./query-params.ts";
+import { MAX_POST_BODY_BYTES } from "./request-limits.ts";
+import {
+  applyTargetPolicy,
+  DEFAULT_TARGET_POLICY_MODE,
+  type TargetPolicyMode,
+} from "./target-policy.ts";
 
 const runtime = ManagedRuntime.make(GameDigService.layer);
 const taggedError = Schema.TaggedError;
@@ -18,6 +24,11 @@ const taggedError = Schema.TaggedError;
 class InvalidJsonError extends taggedError<InvalidJsonError>()("InvalidJson", {
   message: Schema.String,
 }) {}
+
+class PayloadTooLargeError extends taggedError<PayloadTooLargeError>()(
+  "PayloadTooLarge",
+  { message: Schema.String }
+) {}
 
 type ExecuteQuery = (query: QueryParams) => Response | Promise<Response>;
 
@@ -36,6 +47,20 @@ const invalidQueryResponse = (message: string, type = "InvalidQuery") =>
     400
   );
 
+const payloadTooLarge = () =>
+  new PayloadTooLargeError({
+    message: `POST /query body exceeds ${MAX_POST_BODY_BYTES} bytes`,
+  });
+
+const payloadTooLargeResponse = (error: PayloadTooLargeError) =>
+  respondJson(
+    {
+      error: { message: error.message, type: error._tag },
+      success: false,
+    },
+    413
+  );
+
 const parseJson = (text: string): Result.Result<unknown, InvalidJsonError> => {
   try {
     const value: unknown = JSON.parse(text);
@@ -45,6 +70,57 @@ const parseJson = (text: string): Result.Result<unknown, InvalidJsonError> => {
       new InvalidJsonError({ message: "Malformed JSON request body" })
     );
   }
+};
+
+const readPostBody = async (
+  request: Request
+): Promise<Result.Result<string, InvalidJsonError | PayloadTooLargeError>> => {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    const declaredBytes = Number(contentLength);
+    if (Number.isFinite(declaredBytes) && declaredBytes > MAX_POST_BODY_BYTES) {
+      return Result.fail(payloadTooLarge());
+    }
+  }
+
+  if (request.body === null) {
+    return Result.succeed("");
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+
+      byteLength += chunk.value.byteLength;
+      if (byteLength > MAX_POST_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return Result.fail(payloadTooLarge());
+      }
+      chunks.push(chunk.value);
+    }
+  } catch {
+    return Result.fail(
+      new InvalidJsonError({ message: "Unable to read JSON request body" })
+    );
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return Result.succeed(new TextDecoder().decode(bytes));
 };
 
 const hasJsonContentType = (request: Request): boolean =>
@@ -76,7 +152,10 @@ const runQuery = (query: QueryParams): Promise<Response> =>
   );
 
 export const makeRequestHandler =
-  (executeQuery: ExecuteQuery) =>
+  (
+    executeQuery: ExecuteQuery,
+    targetPolicyMode: TargetPolicyMode = DEFAULT_TARGET_POLICY_MODE
+  ) =>
   async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
 
@@ -88,7 +167,19 @@ export const makeRequestHandler =
           parsedGameType.failure._tag
         );
       }
-      return executeQuery(parsedGameType.success);
+
+      const allowedTarget = applyTargetPolicy(
+        parsedGameType.success,
+        targetPolicyMode
+      );
+      if (Result.isFailure(allowedTarget)) {
+        return invalidQueryResponse(
+          allowedTarget.failure.message,
+          allowedTarget.failure._tag
+        );
+      }
+
+      return executeQuery(allowedTarget.success);
     };
 
     if (
@@ -142,7 +233,14 @@ export const makeRequestHandler =
           );
         }
 
-        const json = parseJson(await request.text());
+        const body = await readPostBody(request);
+        if (Result.isFailure(body)) {
+          return body.failure._tag === "PayloadTooLarge"
+            ? payloadTooLargeResponse(body.failure)
+            : invalidQueryResponse(body.failure.message, body.failure._tag);
+        }
+
+        const json = parseJson(body.success);
         if (Result.isFailure(json)) {
           return invalidQueryResponse(json.failure.message, json.failure._tag);
         }
@@ -175,6 +273,11 @@ export const makeRequestHandler =
     }
   };
 
-export const handleRequest = makeRequestHandler(runQuery);
+export const makeContainerRequestHandler = (targetPolicyMode: TargetPolicyMode) =>
+  makeRequestHandler(runQuery, targetPolicyMode);
+
+export const handleRequest = makeContainerRequestHandler(
+  DEFAULT_TARGET_POLICY_MODE
+);
 
 export const disposeRuntime = (): Promise<void> => runtime.dispose();

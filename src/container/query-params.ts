@@ -1,5 +1,13 @@
 import { Result, Schema, SchemaTransformation } from "effect";
 
+import {
+  MAX_ADDRESS_LENGTH,
+  MAX_CREDENTIAL_LENGTH,
+  MAX_HOST_LENGTH,
+  MAX_PROTOCOL_STRING_LENGTH,
+  MAX_TYPE_LENGTH,
+} from "./request-limits.ts";
+
 export const MAX_RETRIES = 3;
 export const MAX_SOCKET_TIMEOUT_MS = 15_000;
 export const MAX_ATTEMPT_TIMEOUT_MS = 60_000;
@@ -31,10 +39,47 @@ class InvalidQueryError extends taggedError<InvalidQueryError>()(
   { message: Schema.String }
 ) {}
 
-const requiredString = (message: string) =>
+const boundedRequiredString = (
+  emptyMessage: string,
+  maximumLength: number,
+  tooLongMessage: string
+) =>
   Schema.String.pipe(
-    Schema.annotateKey({ messageMissingKey: message }),
-    Schema.check(Schema.isMinLength(1, { message }))
+    Schema.annotateKey({ messageMissingKey: emptyMessage }),
+    Schema.check(Schema.isMinLength(1, { message: emptyMessage })),
+    Schema.check(
+      Schema.isMaxLength(maximumLength, {
+        message: tooLongMessage,
+      })
+    )
+  );
+
+const hostString = boundedRequiredString(
+  "Missing required parameter: host",
+  MAX_HOST_LENGTH,
+  `Invalid host: expected at most ${MAX_HOST_LENGTH} characters`
+);
+const addressString = boundedRequiredString(
+  "Invalid address: expected a non-empty string",
+  MAX_ADDRESS_LENGTH,
+  `Invalid address: expected at most ${MAX_ADDRESS_LENGTH} characters`
+);
+const typeString = boundedRequiredString(
+  "Missing required parameter: type",
+  MAX_TYPE_LENGTH,
+  `Invalid type: expected at most ${MAX_TYPE_LENGTH} characters`
+);
+const protocolString = (name: string) =>
+  boundedRequiredString(
+    `Invalid ${name}: expected a non-empty string`,
+    MAX_PROTOCOL_STRING_LENGTH,
+    `Invalid ${name}: expected at most ${MAX_PROTOCOL_STRING_LENGTH} characters`
+  );
+const credentialString = (name: string) =>
+  boundedRequiredString(
+    `Invalid ${name}: expected a non-empty string`,
+    MAX_CREDENTIAL_LENGTH,
+    `Invalid ${name}: expected at most ${MAX_CREDENTIAL_LENGTH} characters`
   );
 
 const BooleanFromStringSchema = Schema.Literals(["false", "true"]).pipe(
@@ -142,115 +187,75 @@ const SnapshotIntervalSchema = Schema.Literals([
 ]);
 
 const QueryParamsSchema = Schema.Struct({
-  accountId: Schema.optionalKey(
-    requiredString("Invalid accountId: expected a non-empty string")
-  ),
-  address: Schema.optionalKey(
-    requiredString("Invalid address: expected a non-empty string")
-  ),
-  apiKey: Schema.optionalKey(
-    requiredString("Invalid apiKey: expected a non-empty string")
-  ),
+  accountId: Schema.optionalKey(protocolString("accountId")),
+  address: Schema.optionalKey(addressString),
+  apiKey: Schema.optionalKey(credentialString("apiKey")),
   attemptTimeout: AttemptTimeoutSchema,
   checkOldIDs: BooleanFromStringSchema,
   debug: BooleanFromStringSchema,
   givenPortOnly: BooleanFromStringSchema,
-  guildId: Schema.optionalKey(
-    requiredString("Invalid guildId: expected a non-empty string")
-  ),
-  host: requiredString("Missing required parameter: host"),
+  guildId: Schema.optionalKey(protocolString("guildId")),
+  host: hostString,
   ipFamily: IpFamilySchema,
-  login: Schema.optionalKey(
-    requiredString("Invalid login: expected a non-empty string")
-  ),
+  login: Schema.optionalKey(protocolString("login")),
   maxRetries: MaxRetriesSchema,
   moreData: Schema.optionalKey(BooleanFromStringSchema),
   noBreadthOrder: BooleanFromStringSchema,
-  password: Schema.optionalKey(
-    requiredString("Invalid password: expected a non-empty string")
-  ),
+  password: Schema.optionalKey(credentialString("password")),
   port: Schema.optionalKey(PortSchema),
   rejectUnauthorized: Schema.optionalKey(BooleanFromStringSchema),
   requestPlayers: BooleanFromStringSchema,
   requestPlayersRequired: BooleanFromStringSchema,
   requestRules: BooleanFromStringSchema,
   requestRulesRequired: BooleanFromStringSchema,
-  serverId: Schema.optionalKey(
-    requiredString("Invalid serverId: expected a non-empty string")
-  ),
+  serverId: Schema.optionalKey(protocolString("serverId")),
   snapshotInterval: Schema.optionalKey(SnapshotIntervalSchema),
   socketTimeout: SocketTimeoutSchema,
   stripColors: BooleanFromStringSchema,
   teamspeakQueryPort: Schema.optionalKey(TeamspeakQueryPortSchema),
-  telnetPassword: Schema.optionalKey(
-    requiredString("Invalid telnetPassword: expected a non-empty string")
-  ),
+  telnetPassword: Schema.optionalKey(credentialString("telnetPassword")),
   telnetPort: Schema.optionalKey(TelnetPortSchema),
-  token: Schema.optionalKey(
-    requiredString("Invalid token: expected a non-empty string")
-  ),
-  type: requiredString("Missing required parameter: type"),
-  username: Schema.optionalKey(
-    requiredString("Invalid username: expected a non-empty string")
-  ),
+  token: Schema.optionalKey(credentialString("token")),
+  type: typeString,
+  username: Schema.optionalKey(protocolString("username")),
 });
 
 const PostQueryOptionsSchema = Schema.Struct({
-  accountId: Schema.optionalKey(
-    requiredString("Invalid accountId: expected a non-empty string")
-  ),
-  address: Schema.optionalKey(
-    requiredString("Invalid address: expected a non-empty string")
-  ),
-  apiKey: Schema.optionalKey(
-    requiredString("Invalid apiKey: expected a non-empty string")
-  ),
+  accountId: Schema.optionalKey(protocolString("accountId")),
+  address: Schema.optionalKey(addressString),
+  apiKey: Schema.optionalKey(credentialString("apiKey")),
   attemptTimeout: Schema.optionalKey(PostAttemptTimeoutSchema),
   checkOldIDs: Schema.optionalKey(Schema.Boolean),
   debug: Schema.optionalKey(Schema.Boolean),
   givenPortOnly: Schema.optionalKey(Schema.Boolean),
-  guildId: Schema.optionalKey(
-    requiredString("Invalid guildId: expected a non-empty string")
-  ),
+  guildId: Schema.optionalKey(protocolString("guildId")),
   ipFamily: Schema.optionalKey(Schema.Literals([0, 4, 6])),
-  login: Schema.optionalKey(
-    requiredString("Invalid login: expected a non-empty string")
-  ),
+  login: Schema.optionalKey(protocolString("login")),
   maxRetries: Schema.optionalKey(PostMaxRetriesSchema),
   moreData: Schema.optionalKey(Schema.Boolean),
   noBreadthOrder: Schema.optionalKey(Schema.Boolean),
-  password: Schema.optionalKey(
-    requiredString("Invalid password: expected a non-empty string")
-  ),
+  password: Schema.optionalKey(credentialString("password")),
   rejectUnauthorized: Schema.optionalKey(Schema.Boolean),
   requestPlayers: Schema.optionalKey(Schema.Boolean),
   requestPlayersRequired: Schema.optionalKey(Schema.Boolean),
   requestRules: Schema.optionalKey(Schema.Boolean),
   requestRulesRequired: Schema.optionalKey(Schema.Boolean),
-  serverId: Schema.optionalKey(
-    requiredString("Invalid serverId: expected a non-empty string")
-  ),
+  serverId: Schema.optionalKey(protocolString("serverId")),
   snapshotInterval: Schema.optionalKey(SnapshotIntervalSchema),
   socketTimeout: Schema.optionalKey(PostSocketTimeoutSchema),
   stripColors: Schema.optionalKey(Schema.Boolean),
   teamspeakQueryPort: Schema.optionalKey(PostTeamspeakQueryPortSchema),
-  telnetPassword: Schema.optionalKey(
-    requiredString("Invalid telnetPassword: expected a non-empty string")
-  ),
+  telnetPassword: Schema.optionalKey(credentialString("telnetPassword")),
   telnetPort: Schema.optionalKey(PostTelnetPortSchema),
-  token: Schema.optionalKey(
-    requiredString("Invalid token: expected a non-empty string")
-  ),
-  username: Schema.optionalKey(
-    requiredString("Invalid username: expected a non-empty string")
-  ),
+  token: Schema.optionalKey(credentialString("token")),
+  username: Schema.optionalKey(protocolString("username")),
 });
 
 export const PostQueryRequestSchema = Schema.Struct({
-  host: requiredString("Missing required parameter: host"),
+  host: hostString,
   options: Schema.optionalKey(PostQueryOptionsSchema),
   port: Schema.optionalKey(PostPortSchema),
-  type: requiredString("Missing required parameter: type"),
+  type: typeString,
 });
 
 export type QueryParams = typeof QueryParamsSchema.Type;
