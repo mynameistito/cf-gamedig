@@ -124,22 +124,25 @@ describe("request size limits", () => {
     });
   });
 
-  test("rejects oversized streamed bodies without content-length and cancels the stream", async () => {
-    let cancelled = false;
-    const stream = new ReadableStream<Uint8Array>({
-      cancel() {
-        cancelled = true;
-      },
-      start(controller) {
-        controller.enqueue(new Uint8Array(MAX_POST_BODY_BYTES + 1));
-      },
-    });
-    const { calls, response } = await postStream(stream);
+  test(
+    "rejects oversized streamed bodies without content-length and cancels the stream",
+    async () => {
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+        start(controller) {
+          controller.enqueue(new Uint8Array(MAX_POST_BODY_BYTES + 1));
+        },
+      });
+      const { calls, response } = await postStream(stream);
 
-    expect(response.status).toBe(413);
-    expect(calls).toHaveLength(0);
-    expect(cancelled).toBe(true);
-  });
+      expect(response.status).toBe(413);
+      expect(calls).toHaveLength(0);
+      expect(cancelled).toBe(true);
+    }
+  );
 
   test("rejects bodies larger than a declared content-length", async () => {
     const stream = new ReadableStream<Uint8Array>({
@@ -246,20 +249,23 @@ describe("request size limits", () => {
     }
   });
 
-  test("rejects oversized GET credentials before parsing without echoing them", async () => {
-    const credential = `credential-${"x".repeat(MAX_CREDENTIAL_LENGTH + 1)}`;
-    const { body, calls, response } = await getQuery(
-      `type=minecraft&host=example.com&password=${credential}`
-    );
+  test(
+    "rejects oversized GET credentials before parsing without echoing them",
+    async () => {
+      const credential = `credential-${"x".repeat(MAX_CREDENTIAL_LENGTH + 1)}`;
+      const { body, calls, response } = await getQuery(
+        `type=minecraft&host=example.com&password=${credential}`
+      );
 
-    expect(response.status).toBe(400);
-    expect(calls).toHaveLength(0);
-    expect(JSON.stringify(body)).not.toContain(credential);
-    expect(body).toMatchObject({
-      error: { type: "InvalidQuery" },
-      success: false,
-    });
-  });
+      expect(response.status).toBe(400);
+      expect(calls).toHaveLength(0);
+      expect(JSON.stringify(body)).not.toContain(credential);
+      expect(body).toMatchObject({
+        error: { type: "InvalidQuery" },
+        success: false,
+      });
+    }
+  );
 });
 
 describe("target policy configuration", () => {
@@ -356,7 +362,7 @@ describe("public-safe target policy", () => {
       "0x7f000001",
       "127.1",
       "127.0.0.1.",
-      "fe80::1%eth0",
+      `${ipv6("fe80", "", "1")}%eth0`,
     ];
 
     for (const target of blocked) {
