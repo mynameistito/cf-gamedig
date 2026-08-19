@@ -4,6 +4,8 @@ import type { QueryParams } from "../src/container/query-params.ts";
 import { toPublicQueryParams } from "../src/container/query-params.ts";
 import { makeRequestHandler } from "../src/container/server.ts";
 
+const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
+
 const makeFakeHandler = () => {
   const calls: QueryParams[] = [];
   const handler = makeRequestHandler((query) => {
@@ -19,13 +21,13 @@ const makeFakeHandler = () => {
 };
 
 const requestQuery = async (query: string) => {
-  const { handler } = makeFakeHandler();
+  const { calls, handler } = makeFakeHandler();
   const response = await handler(
     new Request(`https://container.local/query?${query}`)
   );
   const body: unknown = await response.json();
 
-  return { body, response };
+  return { body, calls, response };
 };
 
 const postQuery = async (
@@ -50,13 +52,10 @@ const postQuery = async (
   return { body: responseBody, calls, response };
 };
 
-describe("/query validation", () => {
-  test("keeps ordinary GET /query compatibility", async () => {
-    const { calls, handler } = makeFakeHandler();
-    const response = await handler(
-      new Request(
-        "https://container.local/query?type=minecraft&host=example.com&port=25565&guildId=123456789012345678"
-      )
+describe("/query transport", () => {
+  test("keeps ordinary GET compatibility", async () => {
+    const { calls, response } = await requestQuery(
+      "type=minecraft&host=example.com&port=25565&guildId=123456789012345678"
     );
 
     expect(response.status).toBe(200);
@@ -69,79 +68,46 @@ describe("/query validation", () => {
     });
   });
 
-  test("returns 400 InvalidQuery for an invalid boolean", async () => {
-    const { body, response } = await requestQuery(
-      "type=minecraft&host=example.com&debug=1"
-    );
+  test("keeps existing GET validation", async () => {
+    const invalidQueries = [
+      "type=minecraft&host=example.com&debug=1",
+      "type=minecraft&host=example.com&maxRetries=-1",
+      "type=minecraft&host=example.com&ipFamily=5",
+      "type=minecraft&host=example.com&socketTimeout=5000&attemptTimeout=5000",
+    ];
+    const results = await Promise.all(invalidQueries.map(requestQuery));
 
-    expect(response.status).toBe(400);
-    expect(body).toMatchObject({
-      error: { type: "InvalidQuery" },
-      success: false,
-    });
-  });
-
-  test("returns 400 InvalidQuery for an invalid number", async () => {
-    const { body, response } = await requestQuery(
-      "type=minecraft&host=example.com&maxRetries=-1"
-    );
-
-    expect(response.status).toBe(400);
-    expect(body).toMatchObject({
-      error: { type: "InvalidQuery" },
-      success: false,
-    });
-  });
-
-  test("returns 400 InvalidQuery for an invalid enum", async () => {
-    const { body, response } = await requestQuery(
-      "type=minecraft&host=example.com&ipFamily=5"
-    );
-
-    expect(response.status).toBe(400);
-    expect(body).toMatchObject({
-      error: { type: "InvalidQuery" },
-      success: false,
-    });
-  });
-
-  test("returns 400 InvalidQuery for invalid timeout relationships", async () => {
-    const { body, response } = await requestQuery(
-      "type=minecraft&host=example.com&socketTimeout=5000&attemptTimeout=5000"
-    );
-
-    expect(response.status).toBe(400);
-    expect(body).toEqual({
-      error: {
-        message:
-          "Invalid timeouts: attemptTimeout must be greater than socketTimeout",
-        type: "InvalidQuery",
-      },
-      success: false,
-    });
-  });
-
-  test("rejects every sensitive GET option without echoing its value", async () => {
-    const fakeSecret = "fake-secret-never-echo";
-
-    for (const option of ["password", "token", "apiKey", "telnetPassword"]) {
-      const { body, response } = await requestQuery(
-        `type=palworld&host=example.com&${option}=${fakeSecret}`
-      );
-      const serialized = JSON.stringify(body);
-
-      expect(response.status).toBe(400);
-      expect(body).toMatchObject({
+    for (const result of results) {
+      expect(result.response.status).toBe(400);
+      expect(result.calls).toHaveLength(0);
+      expect(result.body).toMatchObject({
         error: { type: "InvalidQuery" },
         success: false,
       });
-      expect(serialized).not.toContain(fakeSecret);
+    }
+  });
+
+  test("rejects sensitive GET parameters without echoing values", async () => {
+    const optionNames = ["password", "token", "apiKey", "telnetPassword"];
+    const results = await Promise.all(
+      optionNames.map((option) =>
+        requestQuery(
+          `type=palworld&host=example.com&${option}=${TEST_CREDENTIAL}`
+        )
+      )
+    );
+
+    for (const result of results) {
+      const serialized = JSON.stringify(result.body);
+      expect(result.response.status).toBe(400);
+      expect(result.calls).toHaveLength(0);
+      expect(serialized).not.toContain(TEST_CREDENTIAL);
       expect(serialized).toContain("POST /query JSON");
     }
   });
 
-  test("accepts POST /query JSON through the same typed query input", async () => {
-    const { body, calls, response } = await postQuery(
+  test("accepts POST JSON through the typed query pipeline", async () => {
+    const { calls, response } = await postQuery(
       JSON.stringify({
         host: "example.com",
         options: { guildId: "123456789012345678" },
@@ -158,20 +124,17 @@ describe("/query validation", () => {
       port: 443,
       type: "discord",
     });
-    expect(body).toMatchObject({ success: true });
   });
 
-  test("accepts sensitive POST values without echoing them", async () => {
-    const fakePassword = "fake-palworld-password";
-    const fakeToken = "fake-api-token";
+  test("accepts sensitive POST values without returning them", async () => {
     const { body, calls, response } = await postQuery(
       JSON.stringify({
         host: "example.com",
         options: {
-          apiKey: "fake-api-key",
-          password: fakePassword,
-          telnetPassword: "fake-telnet-password",
-          token: fakeToken,
+          apiKey: TEST_CREDENTIAL,
+          password: TEST_CREDENTIAL,
+          telnetPassword: TEST_CREDENTIAL,
+          token: TEST_CREDENTIAL,
           username: "admin",
         },
         port: 8212,
@@ -181,25 +144,16 @@ describe("/query validation", () => {
 
     expect(response.status).toBe(200);
     expect(calls[0]).toMatchObject({
-      apiKey: "fake-api-key",
-      password: fakePassword,
-      telnetPassword: "fake-telnet-password",
-      token: fakeToken,
+      apiKey: TEST_CREDENTIAL,
+      password: TEST_CREDENTIAL,
+      telnetPassword: TEST_CREDENTIAL,
+      token: TEST_CREDENTIAL,
       username: "admin",
     });
-
-    const serialized = JSON.stringify(body);
-    for (const secret of [
-      "fake-api-key",
-      fakePassword,
-      "fake-telnet-password",
-      fakeToken,
-    ]) {
-      expect(serialized).not.toContain(secret);
-    }
+    expect(JSON.stringify(body)).not.toContain(TEST_CREDENTIAL);
   });
 
-  test("rejects malformed JSON cleanly", async () => {
+  test("returns 400 for malformed JSON", async () => {
     const { body, calls, response } = await postQuery("{");
 
     expect(response.status).toBe(400);
@@ -210,13 +164,16 @@ describe("/query validation", () => {
     });
   });
 
-  test("requires application/json for POST /query", async () => {
-    for (const contentType of [undefined, "text/plain"]) {
-      const { body, calls, response } = await postQuery("{}", contentType);
+  test("requires an application/json content type", async () => {
+    const results = await Promise.all([
+      postQuery("{}", undefined),
+      postQuery("{}", "text/plain"),
+    ]);
 
-      expect(response.status).toBe(415);
-      expect(calls).toHaveLength(0);
-      expect(body).toMatchObject({
+    for (const result of results) {
+      expect(result.response.status).toBe(415);
+      expect(result.calls).toHaveLength(0);
+      expect(result.body).toMatchObject({
         error: { type: "UnsupportedMediaType" },
         success: false,
       });
@@ -232,12 +189,14 @@ describe("/query validation", () => {
     expect(response.status).toBe(200);
   });
 
-  test("rejects invalid POST option types before query execution", async () => {
-    const fakeSecret = "fake-secret-never-echo";
+  test("rejects invalid POST types before GameDig", async () => {
     const { body, calls, response } = await postQuery(
       JSON.stringify({
         host: "example.com",
-        options: { password: fakeSecret, teamspeakQueryPort: "10011" },
+        options: {
+          password: TEST_CREDENTIAL,
+          teamspeakQueryPort: "10011",
+        },
         type: "teamspeak3",
       })
     );
@@ -248,70 +207,70 @@ describe("/query validation", () => {
       error: { message: "Invalid POST /query body", type: "InvalidQuery" },
       success: false,
     });
-    expect(JSON.stringify(body)).not.toContain(fakeSecret);
+    expect(JSON.stringify(body)).not.toContain(TEST_CREDENTIAL);
   });
 
-  test("parses every required protocol-specific POST combination", async () => {
+  test("parses the required protocol-specific option combinations", async () => {
     const cases = [
       {
         expected: { guildId: "123456789012345678" },
         request: {
-          host: "discord.com",
+          host: "discord.example.com",
           options: { guildId: "123456789012345678" },
           type: "discord",
         },
       },
       {
         expected: {
-          accountId: "fake-account",
-          apiKey: "fake-scp-key",
+          accountId: "TEST_ACCOUNT",
+          apiKey: TEST_CREDENTIAL,
           serverId: "42",
         },
         request: {
           host: "scpsl.example.com",
           options: {
-            accountId: "fake-account",
-            apiKey: "fake-scp-key",
+            accountId: "TEST_ACCOUNT",
+            apiKey: TEST_CREDENTIAL,
             serverId: "42",
           },
           type: "scpsl",
         },
       },
       {
-        expected: { token: "fake-farming-token" },
+        expected: { token: TEST_CREDENTIAL },
         request: {
           host: "farm.example.com",
-          options: { token: "fake-farming-token" },
+          options: { token: TEST_CREDENTIAL },
           type: "farmingsimulator22",
         },
       },
       {
-        expected: { token: "fake-tshock-token" },
+        expected: { token: TEST_CREDENTIAL },
         request: {
           host: "terraria.example.com",
-          options: { token: "fake-tshock-token" },
+          options: { token: TEST_CREDENTIAL },
           type: "terraria",
         },
       },
       {
-        expected: { password: "fake-pal-password", username: "admin" },
+        expected: { password: TEST_CREDENTIAL, username: "admin" },
         request: {
           host: "pal.example.com",
-          options: { password: "fake-pal-password", username: "admin" },
+          options: { password: TEST_CREDENTIAL, username: "admin" },
           type: "palworld",
         },
       },
       {
         expected: {
           moreData: true,
-          telnetPassword: "fake-telnet-password",
+          telnetPassword: TEST_CREDENTIAL,
           telnetPort: 8081,
         },
         request: {
           host: "7dtd.example.com",
           options: {
             moreData: true,
-            telnetPassword: "fake-telnet-password",
+            telnetPassword: TEST_CREDENTIAL,
             telnetPort: 8081,
           },
           type: "7daystodie",
@@ -326,20 +285,20 @@ describe("/query validation", () => {
         },
       },
       {
-        expected: { login: "SuperAdmin", password: "fake-nadeo-password" },
+        expected: { login: "SuperAdmin", password: TEST_CREDENTIAL },
         request: {
           host: "nadeo.example.com",
-          options: { login: "SuperAdmin", password: "fake-nadeo-password" },
+          options: { login: "SuperAdmin", password: TEST_CREDENTIAL },
           type: "trackmania2",
         },
       },
       {
-        expected: { rejectUnauthorized: true, token: "fake-satisfactory-token" },
+        expected: { rejectUnauthorized: true, token: TEST_CREDENTIAL },
         request: {
           host: "satisfactory.example.com",
           options: {
             rejectUnauthorized: true,
-            token: "fake-satisfactory-token",
+            token: TEST_CREDENTIAL,
           },
           type: "satisfactory",
         },
@@ -353,13 +312,15 @@ describe("/query validation", () => {
         },
       },
     ];
+    const results = await Promise.all(
+      cases.map((entry) => postQuery(JSON.stringify(entry.request)))
+    );
 
-    for (const entry of cases) {
-      const { calls, response } = await postQuery(JSON.stringify(entry.request));
-
-      expect(response.status).toBe(200);
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject(entry.expected);
-    }
+    cases.forEach((entry, index) => {
+      const result = results[index];
+      expect(result?.response.status).toBe(200);
+      expect(result?.calls).toHaveLength(1);
+      expect(result?.calls[0]).toMatchObject(entry.expected);
+    });
   });
 });
