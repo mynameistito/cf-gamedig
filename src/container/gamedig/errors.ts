@@ -1,17 +1,16 @@
 import { Schema } from "effect";
 
-export class GameDigError extends Schema.TaggedError<GameDigError>()(
-  "GameDigError",
-  {
-    cause: Schema.Unknown,
-    elapsedMs: Schema.Number,
-    host: Schema.String,
-    kind: Schema.Literals(["query", "response"]),
-    message: Schema.String,
-    port: Schema.Number,
-    type: Schema.String,
-  }
-) {}
+const taggedError = Schema.TaggedError;
+
+export class GameDigError extends taggedError<GameDigError>()("GameDigError", {
+  cause: Schema.Unknown,
+  elapsedMs: Schema.Number,
+  host: Schema.String,
+  kind: Schema.Literals(["query", "response"]),
+  message: Schema.String,
+  port: Schema.Number,
+  type: Schema.String,
+}) {}
 
 interface GameDigErrorResponse {
   readonly elapsedMs: number;
