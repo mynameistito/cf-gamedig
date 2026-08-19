@@ -113,7 +113,10 @@ const authenticate = async (
   };
 };
 
-const prepareForwardRequest = (request: Request, requestId: string): Request => {
+const prepareForwardRequest = (
+  request: Request,
+  requestId: string
+): Request => {
   const forwardedRequest =
     request.headers.get("authorization") === null
       ? request
@@ -198,11 +201,7 @@ export const handleWorkerRequest = async (
     const authentication = await authenticate(request, protection.authToken);
     if (authentication.status === "unauthorized") {
       return complete(
-        errorResponse(
-          "Missing or invalid bearer token",
-          "Unauthorized",
-          401
-        )
+        errorResponse("Missing or invalid bearer token", "Unauthorized", 401)
       );
     }
 
