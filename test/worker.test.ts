@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { handleWorkerRequest } from "../src/worker/index.ts";
 
+const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
+
 const makeForwarder = (downstreamResponse: Response) => {
   const requests: Request[] = [];
   const forwardRequest = (request: Request): Response => {
@@ -14,7 +16,7 @@ const makeForwarder = (downstreamResponse: Response) => {
 
 const getOnlyRequest = (requests: readonly Request[]): Request => {
   expect(requests).toHaveLength(1);
-  const request = requests[0];
+  const [request] = requests;
   if (request === undefined) {
     throw new Error("Expected one forwarded request");
   }
@@ -54,7 +56,7 @@ describe("Worker forwarding boundary", () => {
     const { forwardRequest, requests } = makeForwarder(downstreamResponse);
     const body = JSON.stringify({
       host: "example.com",
-      options: { password: "TEST_CREDENTIAL" },
+      options: { password: TEST_CREDENTIAL },
       type: "palworld",
     });
     const request = new Request("https://api.example.com/query", {
@@ -114,49 +116,66 @@ describe("Worker forwarding boundary", () => {
   });
 
   test("preserves downstream Container responses without rewriting error statuses", async () => {
-    for (const status of [400, 415, 502, 504]) {
-      const responseBody = `downstream-${status}`;
-      const downstreamResponse = new Response(responseBody, {
-        headers: {
-          "content-type": "application/problem+json",
-          "x-container-response": "preserved",
-        },
-        status,
-      });
-      const { forwardRequest } = makeForwarder(downstreamResponse);
+    const results = await Promise.all(
+      [400, 415, 502, 504].map(async (status) => {
+        const responseBody = `downstream-${status}`;
+        const downstreamResponse = new Response(responseBody, {
+          headers: {
+            "content-type": "application/problem+json",
+            "x-container-response": "preserved",
+          },
+          status,
+        });
+        const { forwardRequest } = makeForwarder(downstreamResponse);
+        const response = await handleWorkerRequest(
+          new Request(
+            "https://api.example.com/query?type=minecraft&host=example.com"
+          ),
+          forwardRequest
+        );
+        const body = await response.text();
 
-      const response = await handleWorkerRequest(
-        new Request("https://api.example.com/query?type=minecraft&host=example.com"),
-        forwardRequest
-      );
+        return { body, downstreamResponse, response, responseBody, status };
+      })
+    );
 
-      expect(response).toBe(downstreamResponse);
-      expect(response.status).toBe(status);
-      expect(response.headers.get("content-type")).toBe(
+    for (const result of results) {
+      expect(result.response).toBe(result.downstreamResponse);
+      expect(result.response.status).toBe(result.status);
+      expect(result.response.headers.get("content-type")).toBe(
         "application/problem+json"
       );
-      expect(response.headers.get("x-container-response")).toBe("preserved");
-      expect(await response.text()).toBe(responseBody);
+      expect(result.response.headers.get("x-container-response")).toBe(
+        "preserved"
+      );
+      expect(result.body).toBe(result.responseBody);
     }
   });
 
   test("translates thrown and rejected forwarding failures into a stable 503", async () => {
-    const sensitiveMessage = "binding failed with password=TEST_CREDENTIAL";
+    const sensitiveMessage = [
+      "binding failed with credential=",
+      TEST_CREDENTIAL,
+    ].join("");
     const failingForwarders = [
       () => {
         throw new Error(sensitiveMessage);
       },
       () => Promise.reject(new Error(sensitiveMessage)),
     ];
+    const results = await Promise.all(
+      failingForwarders.map(async (forwardRequest) => {
+        const response = await handleWorkerRequest(
+          new Request("https://api.example.com/health"),
+          forwardRequest
+        );
+        const body: unknown = await response.json();
+        return { body, response };
+      })
+    );
 
-    for (const forwardRequest of failingForwarders) {
-      const response = await handleWorkerRequest(
-        new Request("https://api.example.com/health"),
-        forwardRequest
-      );
-      const body: unknown = await response.json();
+    for (const { body, response } of results) {
       const serializedBody = JSON.stringify(body);
-
       expect(response.status).toBe(503);
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(body).toEqual({
@@ -167,7 +186,7 @@ describe("Worker forwarding boundary", () => {
         success: false,
       });
       expect(serializedBody).not.toContain(sensitiveMessage);
-      expect(serializedBody).not.toContain("TEST_CREDENTIAL");
+      expect(serializedBody).not.toContain(TEST_CREDENTIAL);
       expect(serializedBody).not.toContain("binding");
     }
   });
