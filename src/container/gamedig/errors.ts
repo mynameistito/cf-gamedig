@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 const gameDigErrorFields = {
+  cause: Schema.Unknown,
   elapsedMs: Schema.Number,
   host: Schema.String,
   message: Schema.String,
