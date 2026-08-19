@@ -174,7 +174,8 @@ export const parseQueryParams = (
 
   const decoded = Result.mapError(
     Schema.decodeUnknownResult(QueryParamsSchema)(input),
-    (failure) => invalidQuery(failure.message?.split("\n")[0] ?? "Invalid query")
+    (failure) =>
+      invalidQuery(failure.message?.split("\n")[0] ?? "Invalid query")
   );
 
   if (Result.isFailure(decoded)) {
