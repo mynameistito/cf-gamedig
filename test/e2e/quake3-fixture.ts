@@ -2,7 +2,7 @@ import { createSocket } from "node:dgram";
 
 const FIXTURE_PORT = 27_960;
 const EXPECTED_QUERY = Buffer.from(
-  "\xff\xff\xff\xffgetstatus\x00",
+  "\u00FF\u00FF\u00FF\u00FFgetstatus\u0000",
   "latin1"
 );
 const SERVER_INFO = [
@@ -15,7 +15,7 @@ const SERVER_INFO = [
 ].join("");
 const STATUS_RESPONSE = Buffer.from(
   [
-    "\xff\xff\xff\xffstatusResponse",
+    "\u00FF\u00FF\u00FF\u00FFstatusResponse",
     SERVER_INFO,
     '7 42 "^2Alice"',
     '0 0 "^3Fixture Bot"',
@@ -46,25 +46,14 @@ socket.on("message", (message, remote) => {
     return;
   }
 
-  socket.send(STATUS_RESPONSE, remote.port, remote.address, (error) => {
-    if (error !== null) {
-      console.error(
-        JSON.stringify({
-          error: error.message,
-          event: "quake3_fixture_send_error",
-        })
-      );
-      return;
-    }
-
-    console.info(
-      JSON.stringify({
-        event: "quake3_fixture_exchange",
-        remoteAddress: remote.address,
-        remotePort: remote.port,
-      })
-    );
-  });
+  socket.send(STATUS_RESPONSE, remote.port, remote.address);
+  console.info(
+    JSON.stringify({
+      event: "quake3_fixture_exchange",
+      remoteAddress: remote.address,
+      remotePort: remote.port,
+    })
+  );
 });
 
 socket.on("error", (error) => {
