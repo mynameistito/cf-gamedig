@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import type { QueryParams } from "../src/container/query-params.ts";
-import { toPublicQueryParams } from "../src/container/query-params.ts";
-import { makeRequestHandler } from "../src/container/server.ts";
+import type { QueryParams } from "@/container/query-params.ts";
+import { toPublicQueryParams } from "@/container/query-params.ts";
+import { makeRequestHandler } from "@/container/server.ts";
 import {
   createRequestId,
   INTERNAL_REQUEST_ID_HEADER,
   makeResponseMetadata,
   REQUEST_ID_HEADER,
-} from "../src/request-correlation.ts";
+} from "@/request-correlation.ts";
 
 const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
 const REQUEST_ID_PATTERN =

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { QueryParams } from "../../src/container/query-params.ts";
-import { makeRequestHandler } from "../../src/container/server.ts";
+import type { QueryParams } from "@/container/query-params.ts";
+import { makeRequestHandler } from "@/container/server.ts";
 import {
   CLOUDFLARE_RAY_HEADER,
   createRequestId,
@@ -11,9 +11,9 @@ import {
   readCloudflareRequestId,
   readInternalRequestId,
   REQUEST_ID_HEADER,
-} from "../../src/request-correlation.ts";
-import { handleWorkerRequest } from "../../src/worker/handler.ts";
-import type { WorkerProtection } from "../../src/worker/handler.ts";
+} from "@/request-correlation.ts";
+import { handleWorkerRequest } from "@/worker/handler.ts";
+import type { WorkerProtection } from "@/worker/handler.ts";
 
 const REQUEST_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;

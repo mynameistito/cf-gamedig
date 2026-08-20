@@ -3,9 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { Result } from "effect";
 import { games, protocols } from "gamedig";
 
-import { parseGameType } from "../src/container/game-type.ts";
-import type { QueryParams } from "../src/container/query-params.ts";
-import { makeRequestHandler } from "../src/container/server.ts";
+import { parseGameType } from "@/container/game-type.ts";
+import type { QueryParams } from "@/container/query-params.ts";
+import { makeRequestHandler } from "@/container/server.ts";
 
 const findOldOnlyId = (): string => {
   const oldOnlyEntry = Object.values(games).find(

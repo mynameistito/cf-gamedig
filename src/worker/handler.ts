@@ -6,8 +6,8 @@ import {
   makeResponseMetadata,
   readCloudflareRequestId,
   withRequestIdHeader,
-} from "../request-correlation.ts";
-import type { HttpCompletionMetadata } from "../request-correlation.ts";
+} from "@/request-correlation.ts";
+import type { HttpCompletionMetadata } from "@/request-correlation.ts";
 
 type ForwardRequest = (request: Request) => Response | Promise<Response>;
 

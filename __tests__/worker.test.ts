@@ -5,9 +5,9 @@ import {
   CLOUDFLARE_REQUEST_ID_HEADER,
   INTERNAL_REQUEST_ID_HEADER,
   REQUEST_ID_HEADER,
-} from "../src/request-correlation.ts";
-import { handleWorkerRequest } from "../src/worker/handler.ts";
-import type { WorkerProtection } from "../src/worker/handler.ts";
+} from "@/request-correlation.ts";
+import { handleWorkerRequest } from "@/worker/handler.ts";
+import type { WorkerProtection } from "@/worker/handler.ts";
 
 const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
 const TEST_AUTH_TOKEN = ["TEST", "AUTH", "TOKEN"].join("_");
