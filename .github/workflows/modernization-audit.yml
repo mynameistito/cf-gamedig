@@ -1,6 +1,9 @@
 name: Modernization Audit
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - issue-44-modernize-toolchain
