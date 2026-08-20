@@ -3,9 +3,12 @@ import { describe, expect, test } from "bun:test";
 import type { QueryParams } from "../../src/container/query-params.ts";
 import { makeRequestHandler } from "../../src/container/server.ts";
 import {
+  CLOUDFLARE_RAY_HEADER,
   createRequestId,
   INTERNAL_REQUEST_ID_HEADER,
   makeHttpCompletionMetadata,
+  makeResponseMetadata,
+  readCloudflareRequestId,
   readInternalRequestId,
   REQUEST_ID_HEADER,
 } from "../../src/request-correlation.ts";
@@ -83,7 +86,7 @@ describe("request correlation", () => {
     expect(response.headers.get(REQUEST_ID_HEADER)).toMatch(REQUEST_ID_PATTERN);
   });
 
-  test("Container accepts only valid internal UUIDv4 correlation IDs", () => {
+  test("Container accepts only valid correlation IDs on the internal header", () => {
     const valid = createRequestId();
     expect(
       readInternalRequestId(
@@ -93,9 +96,28 @@ describe("request correlation", () => {
       )
     ).toBe(valid);
 
+    const validV7 = "11111111-1111-7111-8111-111111111111";
+    expect(
+      readInternalRequestId(
+        new Request("https://container.local/health", {
+          headers: { [INTERNAL_REQUEST_ID_HEADER]: validV7 },
+        })
+      )
+    ).toBe(validV7);
+
+    const validRay = "9ab9830f8f01234f-SJC";
+    expect(
+      readInternalRequestId(
+        new Request("https://container.local/health", {
+          headers: { [INTERNAL_REQUEST_ID_HEADER]: validRay },
+        })
+      )
+    ).toBe(validRay);
+
     for (const value of [
       "not-a-request-id",
       "11111111-1111-1111-8111-111111111111",
+      "9ab9830f8f01234f-SJC-LAX",
       "x".repeat(4096),
     ]) {
       expect(
@@ -106,6 +128,35 @@ describe("request correlation", () => {
         )
       ).toBeUndefined();
     }
+  });
+
+  test("reads Cloudflare-provided request IDs and ignores malformed values", () => {
+    const rayId = "9ab9830f8f01234f-SJC";
+    const requestId = "a".repeat(32);
+    expect(
+      readCloudflareRequestId(
+        new Request("https://api.example.com/health", {
+          headers: { [CLOUDFLARE_RAY_HEADER]: rayId },
+        })
+      )
+    ).toBe(rayId);
+    expect(
+      readCloudflareRequestId(
+        new Request("https://api.example.com/health", {
+          headers: {
+            [CLOUDFLARE_RAY_HEADER]: rayId,
+            "cf-request-id": requestId,
+          },
+        })
+      )
+    ).toBe(requestId);
+    expect(
+      readCloudflareRequestId(
+        new Request("https://api.example.com/health", {
+          headers: { [CLOUDFLARE_RAY_HEADER]: "not-a-ray" },
+        })
+      )
+    ).toBeUndefined();
   });
 
   test("Worker and Container propagate one ID across a real Request/Response composition", async () => {
@@ -119,7 +170,10 @@ describe("request correlation", () => {
           ? { query }
           : { query, requestId: context.requestId }
       );
-      return Response.json({ success: true });
+      return Response.json({
+        metadata: makeResponseMetadata(context.requestId, context.startedAt),
+        success: true,
+      });
     });
     const forwardedRequests: Request[] = [];
 
@@ -141,8 +195,14 @@ describe("request correlation", () => {
     );
 
     const requestId = forwardedRequestId(forwardedRequests);
+    const body: {
+      readonly metadata?: { readonly requestId?: unknown };
+      readonly success?: boolean;
+    } = await response.json();
     expect(response.status).toBe(200);
     expect(response.headers.get(REQUEST_ID_HEADER)).toBe(requestId);
+    expect(body.success).toBe(true);
+    expect(body.metadata?.requestId).toBe(requestId);
     expect(observed).toEqual([
       {
         query: expect.objectContaining({

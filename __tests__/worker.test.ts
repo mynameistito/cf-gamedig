@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  CLOUDFLARE_RAY_HEADER,
+  CLOUDFLARE_REQUEST_ID_HEADER,
+  INTERNAL_REQUEST_ID_HEADER,
+  REQUEST_ID_HEADER,
+} from "../src/request-correlation.ts";
 import { handleWorkerRequest } from "../src/worker/handler.ts";
 import type { WorkerProtection } from "../src/worker/handler.ts";
 
@@ -121,7 +127,7 @@ describe("Worker forwarding boundary", () => {
     expect(requests).toHaveLength(0);
     expect(response.status).toBe(404);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: {
         message: "Supported routes: /health, /query",
         type: "NotFound",
@@ -143,7 +149,7 @@ describe("Worker forwarding boundary", () => {
     expect(requests).toHaveLength(0);
     expect(response.status).toBe(405);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: { message: "Method not allowed", type: "MethodNotAllowed" },
       success: false,
     });
@@ -214,7 +220,7 @@ describe("Worker forwarding boundary", () => {
       const serializedBody = JSON.stringify(body);
       expect(response.status).toBe(503);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(body).toEqual({
+      expect(body).toMatchObject({
         error: {
           message: "GameDig service temporarily unavailable",
           type: "ContainerUnavailable",
@@ -244,7 +250,7 @@ describe("Worker authentication", () => {
     expect(requests).toHaveLength(0);
     expect(response.status).toBe(401);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: {
         message: "Missing or invalid bearer token",
         type: "Unauthorized",
@@ -400,7 +406,7 @@ describe("Worker query rate limiting", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("retry-after")).toBeNull();
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: {
         message: "Query rate limit exceeded",
         type: "RateLimited",
@@ -424,7 +430,7 @@ describe("Worker query rate limiting", () => {
     expect(requests).toHaveLength(0);
     expect(response.status).toBe(503);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: {
         message: "Query rate limiting is unavailable",
         type: "RateLimitUnavailable",
@@ -457,5 +463,163 @@ describe("Worker query rate limiting", () => {
     expect(response.status).toBe(503);
     expect(serializedBody).not.toContain(TEST_AUTH_TOKEN);
     expect(serializedBody).not.toContain(sensitiveMessage);
+  });
+});
+
+describe("Worker response metadata", () => {
+  const ISO_TIMESTAMP_PATTERN =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+
+  const validateMetadata = (
+    body: { readonly metadata?: unknown },
+    requestId: string
+  ): void => {
+    // SAFETY: the response body is a JSON object and the metadata contract is
+    // established by the field-by-field assertions immediately below.
+    const metadata = body.metadata as {
+      readonly elapsedMs?: unknown;
+      readonly requestId?: unknown;
+      readonly timestamp?: unknown;
+    };
+    expect(metadata?.requestId).toBe(requestId);
+    expect(metadata?.elapsedMs).toEqual(expect.any(Number));
+    expect(Number(metadata?.elapsedMs)).toBeGreaterThanOrEqual(0);
+    expect(metadata?.timestamp).toEqual(expect.any(String));
+    expect(metadata?.timestamp).toMatch(ISO_TIMESTAMP_PATTERN);
+  };
+
+  const correlatedErrorBody = async (
+    request: Request,
+    protection: WorkerProtection,
+    forwardRequest: (
+      request: Request
+    ) => Response | Promise<Response> = makeForwarder(new Response("unused"))
+      .forwardRequest
+  ): Promise<{
+    readonly body: { readonly metadata?: unknown };
+    readonly requestId: string;
+  }> => {
+    const response = await handleWorkerRequest(
+      request,
+      forwardRequest,
+      protection
+    );
+    // SAFETY: Worker JSON responses are plain objects; the metadata contract is
+    // asserted by validateMetadata immediately below.
+    const body = (await response.json()) as { readonly metadata?: unknown };
+    const requestId = response.headers.get(REQUEST_ID_HEADER);
+    expect(requestId).not.toBeNull();
+    validateMetadata(body, requestId ?? "");
+    return { body, requestId: requestId ?? "" };
+  };
+
+  test("404 responses contain correlated metadata", async () => {
+    const { forwardRequest, requests } = makeForwarder(new Response("unused"));
+
+    await correlatedErrorBody(
+      new Request("https://api.example.com/private"),
+      openProtection(),
+      forwardRequest
+    );
+
+    expect(requests).toHaveLength(0);
+  });
+
+  test("405 responses contain correlated metadata", async () => {
+    await correlatedErrorBody(
+      new Request("https://api.example.com/query", { method: "DELETE" }),
+      openProtection()
+    );
+  });
+
+  test("401 responses contain correlated metadata", async () => {
+    await correlatedErrorBody(
+      new Request(
+        "https://api.example.com/query?type=minecraft&host=example.com"
+      ),
+      protectedWorker()
+    );
+  });
+
+  test("429 responses contain correlated metadata", async () => {
+    const { rateLimit } = makeRateLimit(false);
+    await correlatedErrorBody(
+      new Request(
+        "https://api.example.com/query?type=minecraft&host=example.com",
+        { headers: { "cf-connecting-ip": "203.0.113.8" } }
+      ),
+      { authToken: "", rateLimit }
+    );
+  });
+
+  test("rate-limit-unavailable responses contain correlated metadata", async () => {
+    await correlatedErrorBody(
+      new Request(
+        "https://api.example.com/query?type=minecraft&host=example.com"
+      ),
+      { authToken: "" }
+    );
+  });
+
+  test("container-unavailable responses contain correlated metadata", async () => {
+    await correlatedErrorBody(
+      new Request("https://api.example.com/health"),
+      openProtection(),
+      () => Promise.reject(new Error("down"))
+    );
+  });
+
+  test("uses the Cloudflare ray ID as the authoritative request ID when present", async () => {
+    const rayId = "9ab9830f8f01234f-sjc";
+    const requests: Request[] = [];
+    const completions: { readonly requestId?: string }[] = [];
+
+    const response = await handleWorkerRequest(
+      new Request(
+        "https://api.example.com/query?type=minecraft&host=example.com",
+        { headers: { [CLOUDFLARE_RAY_HEADER]: rayId } }
+      ),
+      (request) => {
+        requests.push(request);
+        return Response.json({ success: true });
+      },
+      openProtection(),
+      (metadata) => completions.push(metadata)
+    );
+
+    expect(response.headers.get(REQUEST_ID_HEADER)).toBe(rayId);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.headers.get(INTERNAL_REQUEST_ID_HEADER)).toBe(rayId);
+    expect(completions).toEqual([
+      expect.objectContaining({ requestId: rayId }),
+    ]);
+  });
+
+  test("prefers cf-request-id over CF-Ray", async () => {
+    const requestId = "a".repeat(32);
+    const rayId = "b".repeat(16);
+    const requests: Request[] = [];
+
+    await handleWorkerRequest(
+      new Request(
+        "https://api.example.com/query?type=minecraft&host=example.com",
+        {
+          headers: {
+            [CLOUDFLARE_REQUEST_ID_HEADER]: requestId,
+            [CLOUDFLARE_RAY_HEADER]: rayId,
+          },
+        }
+      ),
+      (request) => {
+        requests.push(request);
+        return Response.json({ success: true });
+      },
+      openProtection()
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.headers.get(INTERNAL_REQUEST_ID_HEADER)).toBe(
+      requestId
+    );
   });
 });

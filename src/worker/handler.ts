@@ -1,7 +1,10 @@
 import {
+  CLOUDFLARE_RAY_HEADER,
   createRequestId,
   INTERNAL_REQUEST_ID_HEADER,
   makeHttpCompletionMetadata,
+  makeResponseMetadata,
+  readCloudflareRequestId,
   withRequestIdHeader,
 } from "../request-correlation.ts";
 import type { HttpCompletionMetadata } from "../request-correlation.ts";
@@ -35,6 +38,8 @@ type AuthenticationResult =
   | { readonly status: "unauthorized" };
 
 const errorResponse = (
+  requestId: string,
+  startedAtMs: number,
   message: string,
   type: WorkerErrorType,
   status: number
@@ -42,6 +47,7 @@ const errorResponse = (
   Response.json(
     {
       error: { message, type },
+      metadata: makeResponseMetadata(requestId, startedAtMs),
       success: false,
     },
     {
@@ -162,21 +168,26 @@ export const handleWorkerRequest = async (
   protection: WorkerProtection,
   recordHttpCompletion?: RecordHttpCompletion
 ): Promise<Response> => {
-  const requestId = createRequestId();
+  const requestId = readCloudflareRequestId(request) ?? createRequestId();
   const startedAt = Date.now();
   const { pathname } = new URL(request.url);
+
+  const error = (message: string, type: WorkerErrorType, status: number) =>
+    errorResponse(requestId, startedAt, message, type, status);
 
   const complete = (response: Response): Response => {
     const correlatedResponse = withRequestIdHeader(response, requestId);
     if (recordHttpCompletion !== undefined) {
       try {
+        const completion = makeHttpCompletionMetadata(
+          request,
+          correlatedResponse,
+          Date.now() - startedAt,
+          requestId
+        );
+        const cloudflareRay = request.headers.get(CLOUDFLARE_RAY_HEADER);
         recordHttpCompletion(
-          makeHttpCompletionMetadata(
-            request,
-            correlatedResponse,
-            Date.now() - startedAt,
-            requestId
-          )
+          cloudflareRay === null ? completion : { ...completion, cloudflareRay }
         );
       } catch {
         // Observability is best-effort and must not change request outcomes.
@@ -187,31 +198,25 @@ export const handleWorkerRequest = async (
 
   if (pathname !== "/health" && pathname !== "/query") {
     return complete(
-      errorResponse("Supported routes: /health, /query", "NotFound", 404)
+      error("Supported routes: /health, /query", "NotFound", 404)
     );
   }
 
   if (!isAllowedMethod(request.method, pathname)) {
-    return complete(
-      errorResponse("Method not allowed", "MethodNotAllowed", 405)
-    );
+    return complete(error("Method not allowed", "MethodNotAllowed", 405));
   }
 
   if (pathname === "/query") {
     const authentication = await authenticate(request, protection.authToken);
     if (authentication.status === "unauthorized") {
       return complete(
-        errorResponse("Missing or invalid bearer token", "Unauthorized", 401)
+        error("Missing or invalid bearer token", "Unauthorized", 401)
       );
     }
 
     if (protection.rateLimit === undefined) {
       return complete(
-        errorResponse(
-          "Query rate limiting is unavailable",
-          "RateLimitUnavailable",
-          503
-        )
+        error("Query rate limiting is unavailable", "RateLimitUnavailable", 503)
       );
     }
 
@@ -220,17 +225,11 @@ export const handleWorkerRequest = async (
         key: clientRateLimitKey(request, authentication),
       });
       if (!success) {
-        return complete(
-          errorResponse("Query rate limit exceeded", "RateLimited", 429)
-        );
+        return complete(error("Query rate limit exceeded", "RateLimited", 429));
       }
     } catch {
       return complete(
-        errorResponse(
-          "Query rate limiting is unavailable",
-          "RateLimitUnavailable",
-          503
-        )
+        error("Query rate limiting is unavailable", "RateLimitUnavailable", 503)
       );
     }
   }
@@ -241,7 +240,7 @@ export const handleWorkerRequest = async (
     );
   } catch {
     return complete(
-      errorResponse(
+      error(
         "GameDig service temporarily unavailable",
         "ContainerUnavailable",
         503
