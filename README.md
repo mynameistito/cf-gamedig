@@ -27,20 +27,28 @@ The application itself can run entirely on Cloudflare. The game server being que
 ## Architecture
 
 ```mermaid
-flowchart LR
-    Client["API client"]
-    Worker["Cloudflare Worker<br/>routes + auth + rate limit"]
-    Binding["Container binding<br/>getContainer(...)"]
-    Container["Cloudflare Container<br/>Bun HTTP server"]
-    GameDig["GameDig 5.3.3"]
-    GameServer["Remote game server"]
+flowchart TD
+    Client["API Client"]
+
+    subgraph Edge["Cloudflare Edge"]
+        Worker["Cloudflare Worker<br/>Routing · Authentication · Rate Limiting"]
+    end
+
+    subgraph Runtime["Cloudflare Container Runtime"]
+        direction TD
+
+        Binding["Container Binding<br/><code>getContainer(...)</code>"]
+        Server["Bun HTTP Server"]
+        GameDig["GameDig 5.3.3"]
+    end
+
+    Target["Remote Game Server"]
 
     Client -->|HTTPS| Worker
-    Worker -->|accepted requests only| Binding
-    Binding -->|internal HTTP| Container
-    Container --> GameDig
-    GameDig -->|UDP / TCP / HTTP / DNS as required| GameServer
-```
+    Worker -->|Validated request| Binding
+    Binding -->|Internal HTTP| Server
+    Server -->|Game query| GameDig
+    GameDig -->|UDP / TCP / HTTP / DNS| Target
 
 The Worker only accepts the public routes documented below. `/query` requests are authenticated when Worker authentication is enabled and are always checked against the configured Cloudflare Rate Limiting binding before `getContainer(...)` is called. The `Authorization` header is stripped before any accepted request is forwarded. `/health` stays unauthenticated and is not rate-limited.
 
