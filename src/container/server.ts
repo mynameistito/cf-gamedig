@@ -1,8 +1,11 @@
 import { Effect, ManagedRuntime, Result, Schema } from "effect";
 
 import {
+  createRequestId,
   makeHttpCompletionMetadata,
+  makeResponseMetadata,
   readInternalRequestId,
+  REQUEST_ID_HEADER,
   withRequestIdHeader,
 } from "../request-correlation.ts";
 import { parseGameTypeQuery } from "./game-type.ts";
@@ -32,7 +35,8 @@ class InvalidJsonError extends taggedError<InvalidJsonError>()("InvalidJson", {
 }) {}
 
 interface RequestContext {
-  readonly requestId?: string;
+  readonly requestId: string;
+  readonly startedAt: number;
 }
 
 type ExecuteQuery = (
@@ -50,14 +54,29 @@ interface CancelableReadable {
   readonly cancel: () => Promise<void>;
 }
 
-const respondJson = <T>(body: T, status = 200): Response =>
-  Response.json(body, {
-    headers: { "cache-control": "no-store" },
-    status,
-  });
+const respondJson = <T extends object>(
+  context: RequestContext,
+  body: T,
+  status = 200
+): Response =>
+  Response.json(
+    {
+      ...body,
+      metadata: makeResponseMetadata(context.requestId, context.startedAt),
+    },
+    {
+      headers: { "cache-control": "no-store" },
+      status,
+    }
+  );
 
-const invalidQueryResponse = (message: string, type = "InvalidQuery") =>
+const invalidQueryResponse = (
+  context: RequestContext,
+  message: string,
+  type = "InvalidQuery"
+) =>
   respondJson(
+    context,
     {
       error: { message, type },
       success: false,
@@ -75,8 +94,12 @@ const payloadTooFragmented = () =>
     message: `POST /query body exceeds ${MAX_POST_BODY_CHUNKS} chunks`,
   });
 
-const payloadTooLargeResponse = (error: PayloadTooLargeError) =>
+const payloadTooLargeResponse = (
+  context: RequestContext,
+  error: PayloadTooLargeError
+) =>
   respondJson(
+    context,
     {
       error: { message: error.message, type: error._tag },
       success: false,
@@ -201,10 +224,10 @@ const runQuery: ExecuteQuery = (query, context) => {
     Effect.match({
       onFailure: (error) => {
         const status = error.kind === "response" ? 502 : 504;
-        return respondJson(mapGameDigError(error), status);
+        return respondJson(context, mapGameDigError(error), status);
       },
       onSuccess: (server) =>
-        respondJson({
+        respondJson(context, {
           query: toPublicQueryParams(query),
           server,
           success: true,
@@ -213,9 +236,7 @@ const runQuery: ExecuteQuery = (query, context) => {
   );
 
   return runtime.runPromise(
-    context.requestId === undefined
-      ? program
-      : program.pipe(Effect.annotateLogs("requestId", context.requestId))
+    program.pipe(Effect.annotateLogs("requestId", context.requestId))
   );
 };
 
@@ -228,6 +249,7 @@ const executeValidatedQuery = (
   const parsedGameType = parseGameTypeQuery(query);
   if (Result.isFailure(parsedGameType)) {
     return invalidQueryResponse(
+      context,
       parsedGameType.failure.message,
       parsedGameType.failure._tag
     );
@@ -239,6 +261,7 @@ const executeValidatedQuery = (
   );
   if (Result.isFailure(allowedTarget)) {
     return invalidQueryResponse(
+      context,
       allowedTarget.failure.message,
       allowedTarget.failure._tag
     );
@@ -249,28 +272,36 @@ const executeValidatedQuery = (
 
 const handleGetQuery = (
   searchParams: URLSearchParams,
+  context: RequestContext,
   executeQuery: ExecuteParsedQuery
 ): Response | Promise<Response> => {
   const sensitiveParameter = findSensitiveQueryParameter(searchParams);
   if (sensitiveParameter !== undefined) {
     return invalidQueryResponse(
+      context,
       `Sensitive option ${sensitiveParameter} must be sent with POST /query JSON`
     );
   }
 
   const query = parseQueryParams(searchParams);
   if (Result.isFailure(query)) {
-    return invalidQueryResponse(query.failure.message, query.failure._tag);
+    return invalidQueryResponse(
+      context,
+      query.failure.message,
+      query.failure._tag
+    );
   }
   return executeQuery(query.success);
 };
 
 const handlePostQuery = async (
   request: Request,
+  context: RequestContext,
   executeQuery: ExecuteParsedQuery
 ): Promise<Response> => {
   if (!hasJsonContentType(request)) {
     return respondJson(
+      context,
       {
         error: {
           message: "POST /query requires Content-Type: application/json",
@@ -285,32 +316,44 @@ const handlePostQuery = async (
   const body = await readPostBody(request);
   if (Result.isFailure(body)) {
     return body.failure._tag === "PayloadTooLarge"
-      ? payloadTooLargeResponse(body.failure)
-      : invalidQueryResponse(body.failure.message, body.failure._tag);
+      ? payloadTooLargeResponse(context, body.failure)
+      : invalidQueryResponse(context, body.failure.message, body.failure._tag);
   }
 
   const json = parseJson(body.success);
   if (Result.isFailure(json)) {
-    return invalidQueryResponse(json.failure.message, json.failure._tag);
+    return invalidQueryResponse(
+      context,
+      json.failure.message,
+      json.failure._tag
+    );
   }
 
   const postRequest = Schema.decodeUnknownResult(PostQueryRequestSchema)(
     json.success
   );
   if (Result.isFailure(postRequest)) {
-    return invalidQueryResponse("Invalid POST /query body");
+    return invalidQueryResponse(context, "Invalid POST /query body");
   }
 
   const query = parsePostQuery(postRequest.success);
   if (Result.isFailure(query)) {
-    return invalidQueryResponse(query.failure.message, query.failure._tag);
+    return invalidQueryResponse(
+      context,
+      query.failure.message,
+      query.failure._tag
+    );
   }
   return executeQuery(query.success);
 };
 
-const methodNotAllowed = (allowedMethods: readonly string[]) => {
+const methodNotAllowed = (
+  context: RequestContext,
+  allowedMethods: readonly string[]
+) => {
   const allow = allowedMethods.join(", ");
   const response = respondJson(
+    context,
     {
       error: { message: `Use ${allow}`, type: "MethodNotAllowed" },
       success: false,
@@ -333,29 +376,34 @@ const routeRequest = (
 
   if (url.pathname === "/health") {
     return request.method === "GET"
-      ? respondJson({ service: "cf-gamedig-container", success: true })
-      : methodNotAllowed(["GET"]);
+      ? respondJson(context, {
+          service: "cf-gamedig",
+          status: "ok",
+          success: true,
+        })
+      : methodNotAllowed(context, ["GET"]);
   }
 
   if (url.pathname !== "/query") {
     return request.method === "GET"
       ? respondJson(
+          context,
           {
             error: { message: "Route not found", type: "NotFound" },
             success: false,
           },
           404
         )
-      : methodNotAllowed(["GET"]);
+      : methodNotAllowed(context, ["GET"]);
   }
 
   if (request.method === "GET") {
-    return handleGetQuery(url.searchParams, executeParsedQuery);
+    return handleGetQuery(url.searchParams, context, executeParsedQuery);
   }
   if (request.method === "POST") {
-    return handlePostQuery(request, executeParsedQuery);
+    return handlePostQuery(request, context, executeParsedQuery);
   }
-  return methodNotAllowed(["GET", "POST"]);
+  return methodNotAllowed(context, ["GET", "POST"]);
 };
 
 export const makeRequestHandler =
@@ -364,9 +412,8 @@ export const makeRequestHandler =
     targetPolicyMode: TargetPolicyMode = DEFAULT_TARGET_POLICY_MODE
   ) =>
   async (request: Request): Promise<Response> => {
-    const requestId = readInternalRequestId(request);
-    const context: RequestContext =
-      requestId === undefined ? {} : { requestId };
+    const requestId = readInternalRequestId(request) ?? createRequestId();
+    const context: RequestContext = { requestId, startedAt: Date.now() };
     const response = await routeRequest(
       request,
       executeQuery,
@@ -374,9 +421,7 @@ export const makeRequestHandler =
       context
     );
 
-    return requestId === undefined
-      ? response
-      : withRequestIdHeader(response, requestId);
+    return withRequestIdHeader(response, requestId);
   };
 
 export const makeContainerRequestHandler = (
@@ -387,7 +432,7 @@ export const makeContainerRequestHandler = (
   return async (request: Request): Promise<Response> => {
     const startedAt = Date.now();
     const response = await handler(request);
-    const requestId = readInternalRequestId(request);
+    const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
     const metadata = makeHttpCompletionMetadata(
       request,
       response,

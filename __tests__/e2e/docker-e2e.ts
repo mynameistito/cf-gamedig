@@ -16,8 +16,17 @@ const networkName = `cf-gamedig-e2e-${resourceSuffix}`;
 const fixtureContainerName = `cf-gamedig-e2e-fixture-${resourceSuffix}`;
 const appContainerName = `cf-gamedig-e2e-app-${resourceSuffix}`;
 
+const MetadataSchema = Schema.Struct({
+  elapsedMs: Schema.Number,
+  requestId: Schema.String,
+  timestamp: Schema.String,
+});
+type Metadata = typeof MetadataSchema.Type;
+
 const HealthResponseSchema = Schema.Struct({
+  metadata: MetadataSchema,
   service: Schema.String,
+  status: Schema.String,
   success: Schema.Boolean,
 });
 type HealthResponse = typeof HealthResponseSchema.Type;
@@ -30,6 +39,7 @@ const QueryEchoSchema = Schema.Struct({
   type: Schema.String,
 });
 const QueryResponseSchema = Schema.Struct({
+  metadata: MetadataSchema,
   query: QueryEchoSchema,
   server: GameDigResultSchema,
   success: Schema.Boolean,
@@ -159,6 +169,28 @@ const waitForContainerLog = (
     Date.now() + STARTUP_TIMEOUT_MS
   );
 
+const assertRequestIdHeader = (
+  response: Response,
+  metadata: Metadata,
+  context: string
+): void => {
+  assert.equal(
+    response.headers.get("x-cf-gamedig-request-id"),
+    metadata.requestId,
+    `${context} request-id header matches body metadata`
+  );
+  assert.ok(
+    metadata.requestId.length > 0 && metadata.requestId.length <= 64,
+    `${context} request-id length`
+  );
+  assert.ok(metadata.elapsedMs >= 0, `${context} elapsedMs non-negative`);
+  assert.match(
+    metadata.timestamp,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u,
+    `${context} timestamp format`
+  );
+};
+
 const waitForHealthUntil = async (
   baseUrl: string,
   deadline: number,
@@ -173,12 +205,14 @@ const waitForHealthUntil = async (
     if (response.status === 200) {
       const body = parseHealthResponse(text);
       assert.equal(body.success, true, "health success");
-      assert.equal(body.service, "cf-gamedig-container", "health service name");
+      assert.equal(body.service, "cf-gamedig", "health service name");
+      assert.equal(body.status, "ok", "health status");
       assert.equal(
         response.headers.get("cache-control"),
         "no-store",
         "health cache-control"
       );
+      assertRequestIdHeader(response, body.metadata, "health");
       return;
     }
     failure = `HTTP ${response.status}: ${text}`;
@@ -267,6 +301,7 @@ const queryGameServer = async (
 
   const body = parseQueryResponse(text);
   assert.equal(body.success, true, "query success");
+  assertRequestIdHeader(response, body.metadata, "query");
   assert.equal(body.query.address, fixtureAddress, "query address");
   assert.equal(body.query.givenPortOnly, true, "query givenPortOnly");
   assert.equal(body.query.host, "fixture.invalid", "query host");

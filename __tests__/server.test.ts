@@ -3,14 +3,24 @@ import { describe, expect, test } from "bun:test";
 import type { QueryParams } from "../src/container/query-params.ts";
 import { toPublicQueryParams } from "../src/container/query-params.ts";
 import { makeRequestHandler } from "../src/container/server.ts";
+import {
+  createRequestId,
+  INTERNAL_REQUEST_ID_HEADER,
+  makeResponseMetadata,
+  REQUEST_ID_HEADER,
+} from "../src/request-correlation.ts";
 
 const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
+const REQUEST_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const ISO_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 
 const makeFakeHandler = () => {
   const calls: QueryParams[] = [];
-  const handler = makeRequestHandler((query) => {
+  const handler = makeRequestHandler((query, context) => {
     calls.push(query);
     return Response.json({
+      metadata: makeResponseMetadata(context.requestId, context.startedAt),
       query: toPublicQueryParams(query),
       server: { name: "Fake server" },
       success: true,
@@ -25,7 +35,7 @@ const requestQuery = async (query: string) => {
   const response = await handler(
     new Request(`https://container.local/query?${query}`)
   );
-  const body: unknown = await response.json();
+  const body: { readonly metadata?: unknown } = await response.json();
   return { body, calls, response };
 };
 
@@ -149,7 +159,7 @@ describe("/query transport", () => {
     const { body, calls, response } = await postQuery("{");
     expect(response.status).toBe(400);
     expect(calls).toHaveLength(0);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: { message: "Malformed JSON request body", type: "InvalidJson" },
       success: false,
     });
@@ -191,7 +201,7 @@ describe("/query transport", () => {
     );
     expect(response.status).toBe(400);
     expect(calls).toHaveLength(0);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: { message: "Invalid POST /query body", type: "InvalidQuery" },
       success: false,
     });
@@ -298,5 +308,110 @@ describe("/query transport", () => {
       expect(result?.calls).toHaveLength(1);
       expect(result?.calls[0]).toMatchObject(expected);
     }
+  });
+});
+
+describe("Container response metadata", () => {
+  const validateMetadata = (
+    body: { readonly metadata?: unknown },
+    requestId: string
+  ): void => {
+    // SAFETY: the response body is a JSON object and the metadata contract is
+    // established by the field-by-field assertions immediately below.
+    const metadata = body.metadata as {
+      readonly elapsedMs?: unknown;
+      readonly requestId?: unknown;
+      readonly timestamp?: unknown;
+    };
+    expect(metadata?.requestId).toBe(requestId);
+    expect(metadata?.elapsedMs).toEqual(expect.any(Number));
+    expect(Number(metadata?.elapsedMs)).toBeGreaterThanOrEqual(0);
+    expect(metadata?.timestamp).toEqual(expect.any(String));
+    expect(metadata?.timestamp).toMatch(ISO_TIMESTAMP_PATTERN);
+  };
+
+  test("GET /health includes correlated metadata", async () => {
+    const response = await makeFakeHandler().handler(
+      new Request("https://container.local/health")
+    );
+    const body: {
+      readonly metadata?: unknown;
+      readonly service?: string;
+      readonly status?: string;
+      readonly success?: boolean;
+    } = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      service: "cf-gamedig",
+      status: "ok",
+      success: true,
+    });
+    const requestId = response.headers.get(REQUEST_ID_HEADER);
+    expect(requestId).toMatch(REQUEST_ID_PATTERN);
+    validateMetadata(body, requestId ?? "");
+  });
+
+  test("GET /query success includes correlated metadata", async () => {
+    const { body, response } = await requestQuery(
+      "type=minecraft&host=example.com&port=25565"
+    );
+    const requestId = response.headers.get(REQUEST_ID_HEADER);
+
+    expect(response.status).toBe(200);
+    expect(requestId).toMatch(REQUEST_ID_PATTERN);
+    expect(body).toMatchObject({
+      query: expect.objectContaining({
+        host: "example.com",
+        port: 25_565,
+        type: "minecraft",
+      }),
+      server: { name: "Fake server" },
+      success: true,
+    });
+    validateMetadata(body, requestId ?? "");
+  });
+
+  test("generates a local request ID and exposes the same value in body and header", async () => {
+    const { body, response } = await requestQuery(
+      "type=minecraft&host=example.com"
+    );
+    const headerRequestId = response.headers.get(REQUEST_ID_HEADER);
+
+    expect(headerRequestId).toMatch(REQUEST_ID_PATTERN);
+    validateMetadata(body, headerRequestId ?? "");
+  });
+
+  test("reuses a valid internal Worker request ID without generating a second one", async () => {
+    const internalRequestId = createRequestId();
+    const response = await makeFakeHandler().handler(
+      new Request(
+        "https://container.local/query?type=minecraft&host=example.com",
+        {
+          headers: { [INTERNAL_REQUEST_ID_HEADER]: internalRequestId },
+        }
+      )
+    );
+    const body: {
+      readonly metadata?: { readonly requestId?: unknown };
+    } = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get(REQUEST_ID_HEADER)).toBe(internalRequestId);
+    expect(body.metadata?.requestId).toBe(internalRequestId);
+  });
+
+  test("error responses include correlated metadata", async () => {
+    const { body, response } = await requestQuery(
+      "type=minecraft&host=example.com&debug=1"
+    );
+    const requestId = response.headers.get(REQUEST_ID_HEADER);
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({
+      error: { type: "InvalidQuery" },
+      success: false,
+    });
+    validateMetadata(body, requestId ?? "");
   });
 });

@@ -20,6 +20,7 @@ The service currently provides:
 - runtime validation against the installed GameDig game and protocol registries
 - GameDig-style port resolution when `port` is omitted
 - a typed, normalized response envelope with protocol-specific data preserved under `raw`
+- a `metadata` block on every API response carrying `requestId`, `timestamp`, and `elapsedMs`
 - bounded retries and timeouts suitable for a public HTTP wrapper
 
 The application itself can run entirely on Cloudflare. The game server being queried remains an external target and does not need to be hosted on Cloudflare.
@@ -110,9 +111,27 @@ Response:
 ```json
 {
   "service": "cf-gamedig",
-  "success": true
+  "status": "ok",
+  "success": true,
+  "metadata": {
+    "requestId": "c4c4b8f2-2c0f-4e91-9d6a-6e1f2a3b4c5d",
+    "timestamp": "2026-08-20T12:34:56.789Z",
+    "elapsedMs": 2
+  }
 }
 ```
+
+### Response metadata
+
+Every API response includes a `metadata` object and an `x-cf-gamedig-request-id` response header that identify that individual request:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `metadata.requestId` | string | Stable identifier for the request. The same value is returned in the `x-cf-gamedig-request-id` response header. |
+| `metadata.timestamp` | string | ISO-8601 UTC timestamp of the response. |
+| `metadata.elapsedMs` | number | Milliseconds elapsed while producing the response. |
+
+The `requestId` is sourced from the incoming Cloudflare request ID (`cf-request-id` or `CF-Ray`) when one is present, and otherwise generated locally as a UUIDv4. The Worker propagates the same value to the Container so the public response body and header always agree; the internal propagation header is never exposed to clients.
 
 ### Worker authentication
 
@@ -393,7 +412,12 @@ Representative response:
     "message": "Invalid type: definitely-not-a-gamedig-id",
     "type": "InvalidQuery"
   },
-  "success": false
+  "success": false,
+  "metadata": {
+    "requestId": "c4c4b8f2-2c0f-4e91-9d6a-6e1f2a3b4c5d",
+    "timestamp": "2026-08-20T12:34:56.789Z",
+    "elapsedMs": 1
+  }
 }
 ```
 
@@ -442,7 +466,12 @@ A successful query returns the normalized query metadata and a schema-validated 
     "raw": {},
     "version": "1.0"
   },
-  "success": true
+  "success": true,
+  "metadata": {
+    "requestId": "c4c4b8f2-2c0f-4e91-9d6a-6e1f2a3b4c5d",
+    "timestamp": "2026-08-20T12:34:56.789Z",
+    "elapsedMs": 42
+  }
 }
 ```
 
@@ -469,7 +498,7 @@ Sensitive request values are never included in the successful response's `query`
 
 ## Errors
 
-Public API errors use a JSON envelope with `success: false`. Worker- and Container-generated API responses use `Cache-Control: no-store`.
+Public API errors use a JSON envelope with `success: false`. Every error includes the same `metadata` block described under [Response metadata](#response-metadata), and Worker- and Container-generated API responses use `Cache-Control: no-store`.
 
 | HTTP status | Error type | When it is returned |
 | --- | --- | --- |
@@ -494,7 +523,12 @@ Representative oversized-body response:
     "message": "POST /query body exceeds 16384 bytes",
     "type": "PayloadTooLarge"
   },
-  "success": false
+  "success": false,
+  "metadata": {
+    "requestId": "c4c4b8f2-2c0f-4e91-9d6a-6e1f2a3b4c5d",
+    "timestamp": "2026-08-20T12:34:56.789Z",
+    "elapsedMs": 1
+  }
 }
 ```
 
@@ -514,7 +548,12 @@ Representative GameDig failure:
     "type": "counterstrike2"
   },
   "stage": "gamedig",
-  "success": false
+  "success": false,
+  "metadata": {
+    "requestId": "c4c4b8f2-2c0f-4e91-9d6a-6e1f2a3b4c5d",
+    "timestamp": "2026-08-20T12:34:56.789Z",
+    "elapsedMs": 1
+  }
 }
 ```
 
@@ -663,7 +702,7 @@ WSL is a local-development fallback, not a deployment requirement.
 
 ## Testing
 
-The test suite covers query parsing, GameDig option forwarding, game/protocol ID validation, protocol-specific options, response schema compatibility, transport behaviour, Worker route/auth/rate-limit behaviour, request-size boundaries, target-policy modes, credential redaction, and error handling.
+The test suite covers query parsing, GameDig option forwarding, game/protocol ID validation, protocol-specific options, response schema compatibility, transport behaviour, Worker route/auth/rate-limit behaviour, request-size boundaries, target-policy modes, credential redaction, and error handling. Response-metadata and request-ID correlation tests cover the Container envelope, Worker-generated errors, Cloudflare request-ID sourcing, and Worker-to-Container ID propagation.
 
 The request-security tests are deterministic. They exercise body and field boundaries, oversized credentials without secret echo, open-mode private-network compatibility, representative public and blocked IPv4/IPv6 literals, and the distinction between logical `host` and connection `address`. They use the request-handler test seam and do not depend on public DNS or public game servers.
 
@@ -820,6 +859,7 @@ The repository includes several request-boundary protections:
 - Bearer tokens are compared using fixed-size SHA-256 digests with a constant-time byte comparison
 - authenticated rate-limit keys use a one-way token digest rather than the raw secret
 - Worker-generated `401`, `429`, and `503` errors never include credentials or internal exception text and use `Cache-Control: no-store`
+- the internal Worker→Container request-ID correlation header never appears in public responses; clients only see `x-cf-gamedig-request-id`
 - external inputs are decoded through Effect Schema rather than spread directly into GameDig
 - POST bodies and exposed string values are bounded before the GameDig call
 - oversized credential values are rejected without echoing the supplied credential

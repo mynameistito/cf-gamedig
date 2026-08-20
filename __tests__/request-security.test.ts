@@ -115,7 +115,7 @@ describe("request size limits", () => {
     expect(response.status).toBe(413);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(calls).toHaveLength(0);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: {
         message: `POST /query body exceeds ${MAX_POST_BODY_BYTES} bytes`,
         type: "PayloadTooLarge",
@@ -167,7 +167,7 @@ describe("request size limits", () => {
 
     expect(response.status).toBe(413);
     expect(calls).toHaveLength(0);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       error: {
         message: `POST /query body exceeds ${MAX_POST_BODY_CHUNKS} chunks`,
         type: "PayloadTooLarge",
@@ -239,7 +239,7 @@ describe("request size limits", () => {
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(calls).toHaveLength(0);
       expect(JSON.stringify(body)).not.toContain(credential);
-      expect(body).toEqual({
+      expect(body).toMatchObject({
         error: { message: "Invalid POST /query body", type: "InvalidQuery" },
         success: false,
       });
@@ -399,7 +399,7 @@ describe("public-safe target policy", () => {
     );
     expect(blockedAddress.response.status).toBe(400);
     expect(blockedAddress.calls).toHaveLength(0);
-    expect(blockedAddress.body).toEqual({
+    expect(blockedAddress.body).toMatchObject({
       error: {
         message:
           "Invalid address: public-safe target policy rejects non-public IP literals",
