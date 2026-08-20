@@ -2,7 +2,7 @@
 
 Run [GameDig](https://github.com/gamedig/node-gamedig) behind a Cloudflare Worker and Cloudflare Container.
 
-`cf-gamedig-container` exposes a small HTTP API for querying remote game servers with GameDig. The Worker is the public edge entrypoint; it authenticates and rate-limits query traffic before forwarding accepted requests to a Cloudflare Container, where Bun and GameDig can use the network protocols required by game-server query implementations.
+`cf-gamedig` exposes a small HTTP API for querying remote game servers with GameDig. The Worker is the public edge entrypoint; it authenticates and rate-limits query traffic before forwarding accepted requests to a Cloudflare Container, where Bun and GameDig can use the network protocols required by game-server query implementations.
 
 ## Overview
 
@@ -100,7 +100,7 @@ Response:
 
 ```json
 {
-  "service": "cf-gamedig-container",
+  "service": "cf-gamedig",
   "success": true
 }
 ```
