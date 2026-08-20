@@ -157,7 +157,11 @@ describe("request correlation", () => {
 
   test("POST body, credentials, and correlation cross Worker -> Container without Authorization", async () => {
     const observedQueries: QueryParams[] = [];
-    const observedRequests: Request[] = [];
+    const observedForwarding: Array<{
+      readonly authorization: string | null;
+      readonly method: string;
+      readonly requestId: string | null;
+    }> = [];
     const containerHandler = makeRequestHandler((query) => {
       observedQueries.push(query);
       return Response.json({ success: true });
@@ -179,7 +183,11 @@ describe("request correlation", () => {
         method: "POST",
       }),
       async (request) => {
-        observedRequests.push(request.clone());
+        observedForwarding.push({
+          authorization: request.headers.get("authorization"),
+          method: request.method,
+          requestId: request.headers.get(INTERNAL_REQUEST_ID_HEADER),
+        });
         const forwardedBody = await request.arrayBuffer();
         return containerHandler(
           new Request(request.url, {
@@ -193,12 +201,10 @@ describe("request correlation", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(observedRequests).toHaveLength(1);
-    expect(observedRequests[0]?.method).toBe("POST");
-    expect(observedRequests[0]?.headers.get("authorization")).toBeNull();
-    expect(observedRequests[0]?.headers.get(INTERNAL_REQUEST_ID_HEADER)).toMatch(
-      REQUEST_ID_PATTERN
-    );
+    expect(observedForwarding).toHaveLength(1);
+    expect(observedForwarding[0]?.method).toBe("POST");
+    expect(observedForwarding[0]?.authorization).toBeNull();
+    expect(observedForwarding[0]?.requestId).toMatch(REQUEST_ID_PATTERN);
     expect(observedQueries[0]).toMatchObject({
       host: "example.com",
       password: TEST_CREDENTIAL,
