@@ -1,4 +1,4 @@
-# cf-gamedig-container
+# cf-gamedig
 
 Run [GameDig](https://github.com/gamedig/node-gamedig) behind a Cloudflare Worker and Cloudflare Container.
 
@@ -10,17 +10,17 @@ GameDig needs capabilities such as UDP, TCP, DNS, and protocol-specific HTTP req
 
 The service currently provides:
 
-- `GET /health` for liveness checks;
-- `GET /query` for ordinary non-secret GameDig queries;
-- `POST /query` for JSON queries, including credential-bearing protocol options;
-- optional Worker Bearer-token authentication, with deliberately open mode as the default;
-- Worker-side `/query` rate limiting before the Container is contacted;
-- explicit POST-body and string-field size limits;
-- configurable `open` and `public-safe` target-policy modes;
-- runtime validation against the installed GameDig game and protocol registries;
-- GameDig-style port resolution when `port` is omitted;
-- a typed, normalized response envelope with protocol-specific data preserved under `raw`;
-- bounded retries and timeouts suitable for a public HTTP wrapper.
+- `GET /health` for liveness checks
+- `GET /query` for ordinary non-secret GameDig queries
+- `POST /query` for JSON queries, including credential-bearing protocol options
+- optional Worker Bearer-token authentication, with deliberately open mode as the default
+- Worker-side `/query` rate limiting before the Container is contacted
+- explicit POST-body and string-field size limits
+- configurable `open` and `public-safe` target-policy modes
+- runtime validation against the installed GameDig game and protocol registries
+- GameDig-style port resolution when `port` is omitted
+- a typed, normalized response envelope with protocol-specific data preserved under `raw`
+- bounded retries and timeouts suitable for a public HTTP wrapper
 
 The application itself can run entirely on Cloudflare. The game server being queried remains an external target and does not need to be hosted on Cloudflare.
 
@@ -121,12 +121,12 @@ Missing, malformed, or incorrect credentials return a stable `401 Unauthorized` 
 
 `/query` uses Cloudflare Workers Rate Limiting before the Container binding is accessed. The current Alchemy configuration is explicit:
 
-- binding: `QUERY_RATE_LIMIT`;
-- namespace ID: `31001`;
-- limit: `10` requests;
-- period: `60` seconds;
-- authenticated partition: SHA-256-derived token identity, never the raw token;
-- open-mode partition: `CF-Connecting-IP`, with a stable fallback when that header is unavailable.
+- binding: `QUERY_RATE_LIMIT`
+- namespace ID: `31001`
+- limit: `10` requests
+- period: `60` seconds
+- authenticated partition: SHA-256-derived token identity, never the raw token
+- open-mode partition: `CF-Connecting-IP`, with a stable fallback when that header is unavailable
 
 The limit is intentionally conservative because the current Container resource has `maxInstances: 1`. `/health` is exempt.
 
@@ -552,16 +552,16 @@ This is not a claim of complete one-for-one `GameDig.query()` compatibility.
 
 Current intentional or structural differences include:
 
-- `host` is required by the HTTP schema for every request;
-- request-body and exposed string fields are bounded by the limits above;
-- only documented, allow-listed options are accepted;
-- credential-bearing fields must use POST JSON;
-- `public-safe` is a wrapper-level literal target policy rather than a change to GameDig's protocol implementations;
-- `portCache` is always disabled;
-- `listenUdpPort` is not exposed;
-- POST uses a wrapper-specific nested `options` object;
-- GameDig results are validated and normalized before being returned;
-- the service does not expose separate `/games`, `/protocols`, or metadata routes.
+- `host` is required by the HTTP schema for every request
+- request-body and exposed string fields are bounded by the limits above
+- only documented, allow-listed options are accepted
+- credential-bearing fields must use POST JSON
+- `public-safe` is a wrapper-level literal target policy rather than a change to GameDig's protocol implementations
+- `portCache` is always disabled
+- `listenUdpPort` is not exposed
+- POST uses a wrapper-specific nested `options` object
+- GameDig results are validated and normalized before being returned
+- the service does not expose separate `/games`, `/protocols`, or metadata routes
 
 ## Development
 
@@ -672,11 +672,11 @@ docker build .
 
 The repository's `Verify` GitHub Actions workflow runs the same verification categories on pull requests to `main` using Bun `1.3.14`:
 
-1. frozen dependency install;
-2. typecheck;
-3. Ultracite check;
-4. tests;
-5. Docker image build.
+1. frozen dependency install
+2. typecheck
+3. Ultracite check
+4. tests
+5. Docker image build
 
 ## Deployment
 
@@ -804,34 +804,34 @@ There are no hard-coded API credentials or Cloudflare account IDs in the reposit
 
 The repository includes several request-boundary protections:
 
-- optional Bearer authentication is enforced at the Worker before Container access;
-- `/query` is rate-limited at the Worker before `getContainer(...)` is called;
-- `/health` intentionally remains unauthenticated and outside the query rate limit;
-- `Authorization` is always removed before forwarding an accepted request to the Container;
-- Bearer tokens are compared using fixed-size SHA-256 digests with a constant-time byte comparison;
-- authenticated rate-limit keys use a one-way token digest rather than the raw secret;
-- Worker-generated `401`, `429`, and `503` errors never include credentials or internal exception text and use `Cache-Control: no-store`;
-- external inputs are decoded through Effect Schema rather than spread directly into GameDig;
-- POST bodies and exposed string values are bounded before the GameDig call;
-- oversized credential values are rejected without echoing the supplied credential;
-- game/protocol IDs are validated before the GameDig network call;
-- retries and timeouts are capped;
-- credential fields are rejected in GET URLs;
-- successful responses omit `apiKey`, `password`, `telnetPassword`, and `token`;
-- GameDig debug mode is forced off for credential-bearing requests;
-- Container JSON responses use `Cache-Control: no-store`;
-- `portCache` is disabled to avoid sharing GameDig's singleton port-cache state across requests;
-- optional `public-safe` mode rejects clearly non-public IPv4 and IPv6 literals in both `host` and `address` before GameDig networking starts.
+- optional Bearer authentication is enforced at the Worker before Container access
+- `/query` is rate-limited at the Worker before `getContainer(...)` is called
+- `/health` intentionally remains unauthenticated and outside the query rate limit
+- `Authorization` is always removed before forwarding an accepted request to the Container
+- Bearer tokens are compared using fixed-size SHA-256 digests with a constant-time byte comparison
+- authenticated rate-limit keys use a one-way token digest rather than the raw secret
+- Worker-generated `401`, `429`, and `503` errors never include credentials or internal exception text and use `Cache-Control: no-store`
+- external inputs are decoded through Effect Schema rather than spread directly into GameDig
+- POST bodies and exposed string values are bounded before the GameDig call
+- oversized credential values are rejected without echoing the supplied credential
+- game/protocol IDs are validated before the GameDig network call
+- retries and timeouts are capped
+- credential fields are rejected in GET URLs
+- successful responses omit `apiKey`, `password`, `telnetPassword`, and `token`
+- GameDig debug mode is forced off for credential-bearing requests
+- Container JSON responses use `Cache-Control: no-store`
+- `portCache` is disabled to avoid sharing GameDig's singleton port-cache state across requests
+- optional `public-safe` mode rejects clearly non-public IPv4 and IPv6 literals in both `host` and `address` before GameDig networking starts
 
 There are also important deployment considerations:
 
-- Worker authentication is still disabled by default unless `CF_GAMEDIG_AUTH_TOKEN` is configured;
-- the target policy is `open` by default so self-host/private-network compatibility is preserved;
-- for an internet-facing deployment, `public-safe` reduces the literal-target attack surface but is not a complete SSRF or network-egress sandbox;
-- the wrapper does not pre-resolve hostname/non-literal targets, so DNS results are not guaranteed to remain public;
-- GameDig 5.3.3 can resolve `host` internally and some protocols can make HTTP, telnet, or other secondary connections using the logical host;
-- Cloudflare's Workers Rate Limiting is distributed and intentionally permissive around propagation, so it should be treated as abuse reduction rather than a transactional quota system;
-- the Container has outbound internet access because GameDig needs it.
+- Worker authentication is still disabled by default unless `CF_GAMEDIG_AUTH_TOKEN` is configured
+- the target policy is `open` by default so self-host/private-network compatibility is preserved
+- for an internet-facing deployment, `public-safe` reduces the literal-target attack surface but is not a complete SSRF or network-egress sandbox
+- the wrapper does not pre-resolve hostname/non-literal targets, so DNS results are not guaranteed to remain public
+- GameDig 5.3.3 can resolve `host` internally and some protocols can make HTTP, telnet, or other secondary connections using the logical host
+- Cloudflare's Workers Rate Limiting is distributed and intentionally permissive around propagation, so it should be treated as abuse reduction rather than a transactional quota system
+- the Container has outbound internet access because GameDig needs it
 
 For an untrusted public deployment, enable `CF_GAMEDIG_AUTH_TOKEN` and set `CF_GAMEDIG_TARGET_POLICY=public-safe`. Treat those controls as application-layer protections; use infrastructure-level outbound network policy as well if the threat model requires guaranteed destination isolation.
 
