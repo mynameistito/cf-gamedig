@@ -20,5 +20,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["alchemy.run.ts", "src/**/*.ts", "test/**/*.ts"]
+  "include": ["alchemy.run.ts", "src/**/*.ts", "__tests__/**/*.ts"]
 }

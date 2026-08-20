@@ -50,6 +50,7 @@ flowchart TD
     Server -->|Game query| GameDig
     GameDig -->|UDP / TCP / HTTP / DNS| Target
 ```
+
 The Worker only accepts the public routes documented below. `/query` requests are authenticated when Worker authentication is enabled and are always checked against the configured Cloudflare Rate Limiting binding before `getContainer(...)` is called. The `Authorization` header is stripped before any accepted request is forwarded. `/health` stays unauthenticated and is not rate-limited.
 
 The `GameDigContainer` listens on port `8080`, has outbound internet access enabled, and is addressed by the stable container key `cf-gamedig`.

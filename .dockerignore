@@ -1,5 +1,5 @@
 .alchemy
 .git
 node_modules
-test
+__tests__
 *.log

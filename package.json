@@ -8,7 +8,8 @@
     "destroy": "alchemy destroy",
     "start": "bun src/container/index.ts",
     "test": "bun test",
-    "test:e2e": "bun test/e2e/docker-e2e.ts",
+    "test:e2e": "bun __tests__/e2e/docker-e2e.ts",
+    "test:coverage": "bun test --coverage",
     "typecheck": "tsc --noEmit",
     "check": "ultracite check",
     "fix": "ultracite fix"
