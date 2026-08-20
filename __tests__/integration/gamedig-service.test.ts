@@ -200,7 +200,7 @@ describe("GameDigService boundary", () => {
   test("credential-bearing service logs never serialize credential values", async () => {
     const capturedLogs: string[] = [];
     const logger = Logger.make((options) => {
-      capturedLogs.push(JSON.stringify(options));
+      capturedLogs.push(JSON.stringify(Logger.formatStructured.log(options)));
     });
     const runtime = ManagedRuntime.make(
       GameDigService.makeLayer(() => Promise.resolve(makeGameDigResult()))
@@ -217,7 +217,7 @@ describe("GameDigService boundary", () => {
         const gameDig = yield* GameDigService;
         return yield* gameDig.query(query);
       }).pipe(
-        Effect.withLogger(logger),
+        Effect.provide(Logger.layer([logger])),
         Effect.provideService(References.MinimumLogLevel, "Trace")
       );
       await runtime.runPromise(program);
