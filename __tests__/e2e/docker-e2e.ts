@@ -332,7 +332,7 @@ const run = async (): Promise<void> => {
       "__tests__/e2e/Dockerfile",
       "--tag",
       FIXTURE_IMAGE,
-      ".",
+      "__tests__",
     ]);
 
     await runDocker(["network", "create", networkName]);
