@@ -1,6 +1,6 @@
 version: 2
 updates:
-  - package-ecosystem: npm
+  - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
@@ -14,12 +14,18 @@ updates:
           - effect
           - "@effect/platform-*"
       development-tooling:
-        dependency-type: development
+        patterns:
+          - "@cloudflare/*"
+          - "@types/*"
+          - alchemy
+          - "eslint-*"
+          - oxfmt
+          - oxlint
+          - typescript
+          - ultracite
         update-types:
           - minor
           - patch
-        exclude-patterns:
-          - "@effect/platform-*"
 
   - package-ecosystem: github-actions
     directory: /
