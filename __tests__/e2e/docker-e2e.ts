@@ -3,10 +3,10 @@ import { strict as assert } from "node:assert";
 import { Result, Schema } from "effect";
 
 import { GameDigResultSchema } from "../../src/container/gamedig/schema.ts";
+import { QUAKE3_FIXTURE_PORT } from "../fixtures/quake3-server.ts";
 
 const APP_IMAGE = "cf-gamedig-e2e-app:local";
 const FIXTURE_IMAGE = "cf-gamedig-e2e-fixture:local";
-const FIXTURE_PORT = 27_960;
 const DOCKER_COMMAND_TIMEOUT_MS = 120_000;
 const STARTUP_TIMEOUT_MS = 15_000;
 const HTTP_TIMEOUT_MS = 10_000;
@@ -174,6 +174,11 @@ const waitForHealthUntil = async (
       const body = parseHealthResponse(text);
       assert.equal(body.success, true, "health success");
       assert.equal(body.service, "cf-gamedig-container", "health service name");
+      assert.equal(
+        response.headers.get("cache-control"),
+        "no-store",
+        "health cache-control"
+      );
       return;
     }
     failure = `HTTP ${response.status}: ${text}`;
@@ -236,7 +241,7 @@ const queryGameServer = async (
     host: "fixture.invalid",
     ipFamily: "4",
     maxRetries: "1",
-    port: String(FIXTURE_PORT),
+    port: String(QUAKE3_FIXTURE_PORT),
     socketTimeout: "1000",
     type: "protocol-quake3",
   }).toString();
@@ -249,17 +254,28 @@ const queryGameServer = async (
     throw new Error(`GET /query failed with HTTP ${response.status}: ${text}`);
   }
 
+  assert.equal(
+    response.headers.get("cache-control"),
+    "no-store",
+    "query cache-control"
+  );
+  assert.match(
+    response.headers.get("content-type") ?? "",
+    /^application\/json/u,
+    "query content-type"
+  );
+
   const body = parseQueryResponse(text);
   assert.equal(body.success, true, "query success");
   assert.equal(body.query.address, fixtureAddress, "query address");
   assert.equal(body.query.givenPortOnly, true, "query givenPortOnly");
   assert.equal(body.query.host, "fixture.invalid", "query host");
-  assert.equal(body.query.port, FIXTURE_PORT, "query port");
+  assert.equal(body.query.port, QUAKE3_FIXTURE_PORT, "query port");
   assert.equal(body.query.type, "protocol-quake3", "query type");
 
   assert.equal(
     body.server.connect,
-    `fixture.invalid:${FIXTURE_PORT}`,
+    `fixture.invalid:${QUAKE3_FIXTURE_PORT}`,
     "server connect"
   );
   assert.equal(body.server.map, "q3dm17", "server map");
@@ -267,13 +283,15 @@ const queryGameServer = async (
   assert.equal(body.server.name, "CF GameDig E2E", "server name");
   assert.equal(body.server.numplayers, 2, "server numplayers");
   assert.equal(body.server.password, false, "server password");
-  assert.equal(body.server.queryPort, FIXTURE_PORT, "server queryPort");
+  assert.equal(body.server.queryPort, QUAKE3_FIXTURE_PORT, "server queryPort");
   assert.equal(body.server.version, "ioquake3 1.36", "server version");
   assert.equal(body.server.players.length, 1, "server player count");
   assert.equal(body.server.players[0]?.name, "Alice", "first player name");
   assert.equal(body.server.bots.length, 1, "server bot count");
   assert.equal(body.server.bots[0]?.name, "Fixture Bot", "first bot name");
   assert.ok(body.server.ping >= 0, "server ping must be non-negative");
+  assert.equal(body.server.raw.mapname, "q3dm17", "raw mapname");
+  assert.equal(body.server.raw.clients, "2", "raw clients");
 };
 
 const cleanupResource = async (args: readonly string[]): Promise<void> => {
@@ -311,10 +329,10 @@ const run = async (): Promise<void> => {
     await runDocker([
       "build",
       "--file",
-      "test/e2e/Dockerfile",
+      "__tests__/e2e/Dockerfile",
       "--tag",
       FIXTURE_IMAGE,
-      "test/e2e",
+      ".",
     ]);
 
     await runDocker(["network", "create", networkName]);

@@ -35,6 +35,9 @@ jobs:
       - name: Test
         run: bun test
 
+      - name: Coverage
+        run: bun run test:coverage
+
       - name: Build Docker image
         run: docker build .
 
