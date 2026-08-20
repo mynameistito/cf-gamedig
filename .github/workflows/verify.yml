@@ -35,3 +35,7 @@ jobs:
 
       - name: Build Docker image
         run: docker build .
+
+      - name: Docker E2E
+        timeout-minutes: 5
+        run: bun run test:e2e
