@@ -1,4 +1,8 @@
-import { execFile } from "node:child_process";
+import { strict as assert } from "node:assert";
+
+import { Result, Schema } from "effect";
+
+import { GameDigResultSchema } from "../../src/container/gamedig/schema.ts";
 
 const APP_IMAGE = "cf-gamedig-e2e-app:local";
 const FIXTURE_IMAGE = "cf-gamedig-e2e-fixture:local";
@@ -6,108 +10,120 @@ const FIXTURE_PORT = 27_960;
 const DOCKER_COMMAND_TIMEOUT_MS = 120_000;
 const STARTUP_TIMEOUT_MS = 15_000;
 const HTTP_TIMEOUT_MS = 10_000;
+const POLL_INTERVAL_MS = 150;
 const resourceSuffix = `${process.pid}-${Date.now()}`;
 const networkName = `cf-gamedig-e2e-${resourceSuffix}`;
 const fixtureContainerName = `cf-gamedig-e2e-fixture-${resourceSuffix}`;
 const appContainerName = `cf-gamedig-e2e-app-${resourceSuffix}`;
+
+const HealthResponseSchema = Schema.Struct({
+  service: Schema.String,
+  success: Schema.Boolean,
+});
+type HealthResponse = typeof HealthResponseSchema.Type;
+
+const QueryEchoSchema = Schema.Struct({
+  address: Schema.String,
+  givenPortOnly: Schema.Boolean,
+  host: Schema.String,
+  port: Schema.Number,
+  type: Schema.String,
+});
+const QueryResponseSchema = Schema.Struct({
+  query: QueryEchoSchema,
+  server: GameDigResultSchema,
+  success: Schema.Boolean,
+});
+type QueryResponse = typeof QueryResponseSchema.Type;
 
 interface CommandResult {
   readonly stderr: string;
   readonly stdout: string;
 }
 
-const errorText = (cause: unknown): string =>
-  cause instanceof Error ? (cause.stack ?? cause.message) : String(cause);
+const errorText = (error: unknown): string =>
+  error instanceof Error ? (error.stack ?? error.message) : String(error);
 
-const runCommand = (
+const runCommand = async (
   command: string,
   args: readonly string[],
   timeoutMs = DOCKER_COMMAND_TIMEOUT_MS
-): Promise<CommandResult> =>
-  new Promise((resolve, reject) => {
-    execFile(
-      command,
-      [...args],
-      {
-        encoding: "utf8",
-        maxBuffer: 20 * 1024 * 1024,
-        timeout: timeoutMs,
-      },
-      (error, stdout, stderr) => {
-        const result = {
-          stderr: String(stderr),
-          stdout: String(stdout),
-        };
-        if (error !== null) {
-          reject(
-            new Error(
-              [
-                `Command failed: ${command} ${args.join(" ")}`,
-                result.stdout.trim(),
-                result.stderr.trim(),
-              ]
-                .filter((line) => line.length > 0)
-                .join("\n"),
-              { cause: error }
-            )
-          );
-          return;
-        }
-        resolve(result);
-      }
-    );
+): Promise<CommandResult> => {
+  const subprocess = Bun.spawn([command, ...args], {
+    stderr: "pipe",
+    stdout: "pipe",
   });
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    subprocess.kill();
+  }, timeoutMs);
+
+  try {
+    const [exitCode, stdout, stderr] = await Promise.all([
+      subprocess.exited,
+      Bun.readableStreamToText(subprocess.stdout),
+      Bun.readableStreamToText(subprocess.stderr),
+    ]);
+
+    if (exitCode !== 0) {
+      const failure = timedOut
+        ? `Command timed out after ${timeoutMs}ms`
+        : `Command exited with code ${exitCode}`;
+      throw new Error(
+        [
+          `${failure}: ${command} ${args.join(" ")}`,
+          stdout.trim(),
+          stderr.trim(),
+        ]
+          .filter((line) => line.length > 0)
+          .join("\n")
+      );
+    }
+
+    return { stderr, stdout };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 
 const runDocker = (
   args: readonly string[],
   timeoutMs = DOCKER_COMMAND_TIMEOUT_MS
 ): Promise<CommandResult> => runCommand("docker", args, timeoutMs);
 
-const sleep = (milliseconds: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
-  });
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const expectRecord = (
-  value: unknown,
-  label: string
-): Record<string, unknown> => {
-  if (!isRecord(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-  return value;
-};
-
-const expectArray = (value: unknown, label: string): readonly unknown[] => {
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
-  }
-  return value;
-};
-
-const expectEqual = (
-  actual: unknown,
-  expected: string | number | boolean,
-  label: string
-): void => {
-  if (actual !== expected) {
-    const expectedText = JSON.stringify(expected);
-    const actualText = JSON.stringify(actual);
-    throw new Error(
-      `${label} mismatch: expected ${expectedText}, received ${actualText}`
-    );
-  }
-};
-
-const parseJson = (text: string, label: string): unknown => {
+const parseHealthResponse = (text: string): HealthResponse => {
+  let parsed: unknown;
   try {
-    return JSON.parse(text);
-  } catch (cause) {
-    throw new Error(`${label} returned invalid JSON: ${text}`, { cause });
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new TypeError(`GET /health returned invalid JSON: ${text}`, {
+      cause: error,
+    });
   }
+
+  const decoded = Schema.decodeUnknownResult(HealthResponseSchema)(parsed);
+  if (Result.isFailure(decoded)) {
+    throw new TypeError(`GET /health returned an invalid response: ${text}`);
+  }
+  return decoded.success;
+};
+
+const parseQueryResponse = (text: string): QueryResponse => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new TypeError(`GET /query returned invalid JSON: ${text}`, {
+      cause: error,
+    });
+  }
+
+  const decoded = Schema.decodeUnknownResult(QueryResponseSchema)(parsed);
+  if (Result.isFailure(decoded)) {
+    throw new TypeError(`GET /query returned an invalid response: ${text}`);
+  }
+  return decoded.success;
 };
 
 const readContainerLogs = async (containerName: string): Promise<string> => {
@@ -117,51 +133,75 @@ const readContainerLogs = async (containerName: string): Promise<string> => {
     .join("\n");
 };
 
-const waitForContainerLog = async (
+const waitForContainerLogUntil = async (
   containerName: string,
-  event: string
+  event: string,
+  deadline: number
 ): Promise<string> => {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-  let latestLogs = "";
-  while (Date.now() < deadline) {
-    latestLogs = await readContainerLogs(containerName);
-    if (latestLogs.includes(`"event":"${event}"`)) {
-      return latestLogs;
-    }
-    await sleep(150);
+  const logs = await readContainerLogs(containerName);
+  if (logs.includes(`"event":"${event}"`)) {
+    return logs;
   }
-  throw new Error(
-    `Timed out waiting for ${event} from ${containerName}\n${latestLogs}`
-  );
+  if (Date.now() >= deadline) {
+    throw new Error(
+      `Timed out waiting for ${event} from ${containerName}\n${logs}`
+    );
+  }
+
+  await Bun.sleep(POLL_INTERVAL_MS);
+  return waitForContainerLogUntil(containerName, event, deadline);
 };
 
-const waitForHealth = async (baseUrl: string): Promise<void> => {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-  let lastFailure = "container did not respond";
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${baseUrl}/health`, {
-        signal: AbortSignal.timeout(1000),
-      });
-      const text = await response.text();
-      if (response.status === 200) {
-        const body = expectRecord(parseJson(text, "GET /health"), "health body");
-        expectEqual(body.success, true, "health success");
-        expectEqual(
-          body.service,
-          "cf-gamedig-container",
-          "health service name"
-        );
-        return;
-      }
-      lastFailure = `HTTP ${response.status}: ${text}`;
-    } catch (cause) {
-      lastFailure = errorText(cause);
+const waitForContainerLog = (
+  containerName: string,
+  event: string
+): Promise<string> =>
+  waitForContainerLogUntil(
+    containerName,
+    event,
+    Date.now() + STARTUP_TIMEOUT_MS
+  );
+
+const waitForHealthUntil = async (
+  baseUrl: string,
+  deadline: number,
+  previousFailure: string
+): Promise<void> => {
+  let failure = previousFailure;
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    const text = await response.text();
+    if (response.status === 200) {
+      const body = parseHealthResponse(text);
+      assert.equal(body.success, true, "health success");
+      assert.equal(
+        body.service,
+        "cf-gamedig-container",
+        "health service name"
+      );
+      return;
     }
-    await sleep(150);
+    failure = `HTTP ${response.status}: ${text}`;
+  } catch (error) {
+    failure = errorText(error);
   }
-  throw new Error(`Container health check timed out: ${lastFailure}`);
+
+  if (Date.now() >= deadline) {
+    throw new Error(`Container health check timed out: ${failure}`);
+  }
+
+  await Bun.sleep(POLL_INTERVAL_MS);
+  return waitForHealthUntil(baseUrl, deadline, failure);
 };
+
+const waitForHealth = (baseUrl: string): Promise<void> =>
+  waitForHealthUntil(
+    baseUrl,
+    Date.now() + STARTUP_TIMEOUT_MS,
+    "container did not respond"
+  );
 
 const inspectFixtureAddress = async (): Promise<string> => {
   const { stdout } = await runDocker([
@@ -172,7 +212,7 @@ const inspectFixtureAddress = async (): Promise<string> => {
   ]);
   const address = stdout.trim();
   if (!/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(address)) {
-    throw new Error(
+    throw new TypeError(
       `Unable to determine fixture container IPv4 address: ${address}`
     );
   }
@@ -185,10 +225,10 @@ const inspectAppPort = async (): Promise<number> => {
     appContainerName,
     "8080/tcp",
   ]);
-  const match = /127\.0\.0\.1:(\d+)/u.exec(stdout);
-  const port = Number(match?.[1]);
+  const match = /127\.0\.0\.1:(?<port>\d+)/u.exec(stdout);
+  const port = Number(match?.groups?.port);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(
+    throw new TypeError(
       `Unable to determine mapped Container HTTP port: ${stdout}`
     );
   }
@@ -220,48 +260,31 @@ const queryGameServer = async (
     throw new Error(`GET /query failed with HTTP ${response.status}: ${text}`);
   }
 
-  const body = expectRecord(parseJson(text, "GET /query"), "query body");
-  expectEqual(body.success, true, "query success");
+  const body = parseQueryResponse(text);
+  assert.equal(body.success, true, "query success");
+  assert.equal(body.query.address, fixtureAddress, "query address");
+  assert.equal(body.query.givenPortOnly, true, "query givenPortOnly");
+  assert.equal(body.query.host, "fixture.invalid", "query host");
+  assert.equal(body.query.port, FIXTURE_PORT, "query port");
+  assert.equal(body.query.type, "protocol-quake3", "query type");
 
-  const query = expectRecord(body.query, "query echo");
-  expectEqual(query.address, fixtureAddress, "query address");
-  expectEqual(query.givenPortOnly, true, "query givenPortOnly");
-  expectEqual(query.host, "fixture.invalid", "query host");
-  expectEqual(query.port, FIXTURE_PORT, "query port");
-  expectEqual(query.type, "protocol-quake3", "query type");
-
-  const server = expectRecord(body.server, "server result");
-  expectEqual(
-    server.connect,
+  assert.equal(
+    body.server.connect,
     `fixture.invalid:${FIXTURE_PORT}`,
     "server connect"
   );
-  expectEqual(server.map, "q3dm17", "server map");
-  expectEqual(server.maxplayers, 16, "server maxplayers");
-  expectEqual(server.name, "CF GameDig E2E", "server name");
-  expectEqual(server.numplayers, 2, "server numplayers");
-  expectEqual(server.password, false, "server password");
-  expectEqual(server.queryPort, FIXTURE_PORT, "server queryPort");
-  expectEqual(server.version, "ioquake3 1.36", "server version");
-
-  const players = expectArray(server.players, "server players");
-  expectEqual(
-    expectRecord(players[0], "first player").name,
-    "Alice",
-    "first player name"
-  );
-
-  const bots = expectArray(server.bots, "server bots");
-  expectEqual(
-    expectRecord(bots[0], "first bot").name,
-    "Fixture Bot",
-    "first bot name"
-  );
-
-  expectRecord(server.raw, "server raw");
-  if (typeof server.ping !== "number" || server.ping < 0) {
-    throw new Error(`server ping must be a non-negative number: ${server.ping}`);
-  }
+  assert.equal(body.server.map, "q3dm17", "server map");
+  assert.equal(body.server.maxplayers, 16, "server maxplayers");
+  assert.equal(body.server.name, "CF GameDig E2E", "server name");
+  assert.equal(body.server.numplayers, 2, "server numplayers");
+  assert.equal(body.server.password, false, "server password");
+  assert.equal(body.server.queryPort, FIXTURE_PORT, "server queryPort");
+  assert.equal(body.server.version, "ioquake3 1.36", "server version");
+  assert.equal(body.server.players.length, 1, "server player count");
+  assert.equal(body.server.players[0]?.name, "Alice", "first player name");
+  assert.equal(body.server.bots.length, 1, "server bot count");
+  assert.equal(body.server.bots[0]?.name, "Fixture Bot", "first bot name");
+  assert.ok(body.server.ping >= 0, "server ping must be non-negative");
 };
 
 const cleanupResource = async (args: readonly string[]): Promise<void> => {
@@ -272,16 +295,21 @@ const cleanupResource = async (args: readonly string[]): Promise<void> => {
   }
 };
 
+const readDiagnostic = async (containerName: string): Promise<string> => {
+  try {
+    const logs = await readContainerLogs(containerName);
+    return `--- ${containerName} logs ---\n${logs || "(no logs)"}`;
+  } catch (error) {
+    return `--- unable to read ${containerName} logs ---\n${errorText(error)}`;
+  }
+};
+
 const printDiagnostics = async (): Promise<void> => {
-  for (const containerName of [appContainerName, fixtureContainerName]) {
-    try {
-      const logs = await readContainerLogs(containerName);
-      console.error(`--- ${containerName} logs ---\n${logs || "(no logs)"}`);
-    } catch (cause) {
-      console.error(
-        `--- unable to read ${containerName} logs ---\n${errorText(cause)}`
-      );
-    }
+  const diagnostics = await Promise.all(
+    [appContainerName, fixtureContainerName].map(readDiagnostic)
+  );
+  for (const diagnostic of diagnostics) {
+    console.error(diagnostic);
   }
 };
 
@@ -338,9 +366,9 @@ const run = async (): Promise<void> => {
     console.info(
       "Docker E2E passed: production Container completed a real Quake 3 UDP query"
     );
-  } catch (cause) {
+  } catch (error) {
     await printDiagnostics();
-    throw cause;
+    throw error;
   } finally {
     await cleanupResource(["rm", "--force", appContainerName]);
     await cleanupResource(["rm", "--force", fixtureContainerName]);
