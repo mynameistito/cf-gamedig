@@ -173,11 +173,7 @@ const waitForHealthUntil = async (
     if (response.status === 200) {
       const body = parseHealthResponse(text);
       assert.equal(body.success, true, "health success");
-      assert.equal(
-        body.service,
-        "cf-gamedig-container",
-        "health service name"
-      );
+      assert.equal(body.service, "cf-gamedig-container", "health service name");
       return;
     }
     failure = `HTTP ${response.status}: ${text}`;
@@ -217,11 +213,7 @@ const inspectFixtureAddress = async (): Promise<string> => {
 };
 
 const inspectAppPort = async (): Promise<number> => {
-  const { stdout } = await runDocker([
-    "port",
-    appContainerName,
-    "8080/tcp",
-  ]);
+  const { stdout } = await runDocker(["port", appContainerName, "8080/tcp"]);
   const match = /127\.0\.0\.1:(?<port>\d+)/u.exec(stdout);
   const port = Number(match?.groups?.port);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -355,10 +347,7 @@ const run = async (): Promise<void> => {
     const baseUrl = `http://127.0.0.1:${appPort}`;
     await waitForHealth(baseUrl);
     await queryGameServer(baseUrl, fixtureAddress);
-    await waitForContainerLog(
-      fixtureContainerName,
-      "quake3_fixture_exchange"
-    );
+    await waitForContainerLog(fixtureContainerName, "quake3_fixture_exchange");
 
     console.info(
       "Docker E2E passed: production Container completed a real Quake 3 UDP query"
