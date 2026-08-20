@@ -1,6 +1,7 @@
 {
   "name": "cf-gamedig-container",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "type": "module",
   "scripts": {
     "dev": "alchemy dev",
