@@ -552,7 +552,7 @@ Representative GameDig failure:
   "metadata": {
     "requestId": "c4c4b8f2-2c0f-4e91-9d6a-6e1f2a3b4c5d",
     "timestamp": "2026-08-20T12:34:56.789Z",
-    "elapsedMs": 1
+    "elapsedMs": 10013
   }
 }
 ```
