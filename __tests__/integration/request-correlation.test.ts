@@ -28,7 +28,7 @@ const openProtection = (): WorkerProtection => ({
 
 const forwardedRequestId = (requests: readonly Request[]): string => {
   expect(requests).toHaveLength(1);
-  const request = requests[0];
+  const [request] = requests;
   if (request === undefined) {
     throw new Error("Expected a forwarded request");
   }
@@ -109,10 +109,10 @@ describe("request correlation", () => {
   });
 
   test("Worker and Container propagate one ID across a real Request/Response composition", async () => {
-    const observed: Array<{
+    const observed: {
       readonly query: QueryParams;
       readonly requestId?: string;
-    }> = [];
+    }[] = [];
     const containerHandler = makeRequestHandler((query, context) => {
       observed.push(
         context.requestId === undefined
@@ -157,11 +157,11 @@ describe("request correlation", () => {
 
   test("POST body, credentials, and correlation cross Worker -> Container without Authorization", async () => {
     const observedQueries: QueryParams[] = [];
-    const observedForwarding: Array<{
+    const observedForwarding: {
       readonly authorization: string | null;
       readonly method: string;
       readonly requestId: string | null;
-    }> = [];
+    }[] = [];
     const containerHandler = makeRequestHandler((query) => {
       observedQueries.push(query);
       return Response.json({ success: true });

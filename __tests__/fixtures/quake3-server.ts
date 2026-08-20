@@ -1,5 +1,3 @@
-import { createSocket } from "node:dgram";
-
 export const QUAKE3_FIXTURE_PORT = 27_960;
 
 const EXPECTED_QUERY = Buffer.from(
@@ -34,7 +32,7 @@ const toHex = (bytes: Uint8Array): string =>
 
 export interface Quake3Fixture {
   readonly address: string;
-  readonly close: () => Promise<void>;
+  readonly close: () => void;
   readonly exchangeCount: () => number;
   readonly port: number;
 }
@@ -46,46 +44,32 @@ interface Quake3FixtureOptions {
   readonly port?: number;
 }
 
-export const startQuake3Fixture = (
+export const startQuake3Fixture = async (
   options: Quake3FixtureOptions = {}
-): Promise<Quake3Fixture> =>
-  new Promise((resolve, reject) => {
-    const socket = createSocket("udp4");
-    let exchanges = 0;
+): Promise<Quake3Fixture> => {
+  let exchanges = 0;
+  const address = options.host ?? "127.0.0.1";
+  const socket = await Bun.udpSocket({
+    hostname: address,
+    port: options.port ?? 0,
+    socket: {
+      data(server, message, remotePort, remoteAddress) {
+        if (!packetEquals(message, EXPECTED_QUERY)) {
+          options.onUnexpectedPacket?.(toHex(message));
+          return;
+        }
 
-    const startupError = (error: Error): void => {
-      reject(error);
-    };
-
-    socket.once("error", startupError);
-    socket.on("message", (message, remote) => {
-      if (!packetEquals(message, EXPECTED_QUERY)) {
-        options.onUnexpectedPacket?.(toHex(message));
-        return;
-      }
-
-      exchanges += 1;
-      socket.send(STATUS_RESPONSE, remote.port, remote.address);
-      options.onExchange?.(remote.address, remote.port);
-    });
-
-    socket.bind(options.port ?? 0, options.host ?? "127.0.0.1", () => {
-      socket.off("error", startupError);
-      const bound = socket.address();
-      if (typeof bound === "string") {
-        socket.close();
-        reject(new TypeError(`Unexpected UDP socket address: ${bound}`));
-        return;
-      }
-
-      resolve({
-        address: bound.address,
-        close: () =>
-          new Promise<void>((resolveClose) => {
-            socket.close(() => resolveClose());
-          }),
-        exchangeCount: () => exchanges,
-        port: bound.port,
-      });
-    });
+        exchanges += 1;
+        server.send(STATUS_RESPONSE, remotePort, remoteAddress);
+        options.onExchange?.(remoteAddress, remotePort);
+      },
+    },
   });
+
+  return {
+    address,
+    close: () => socket.close(),
+    exchangeCount: () => exchanges,
+    port: socket.port,
+  };
+};

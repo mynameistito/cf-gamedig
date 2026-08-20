@@ -46,15 +46,12 @@ const makeGameDigResult = (queryPort = 27_015) => ({
   version: "1.0",
 });
 
-const captureQuery = async (
-  query: QueryParams,
-  result: object = makeGameDigResult()
-) => {
+const captureQuery = async (query: QueryParams, queryPort = 27_015) => {
   const calls: CapturedGameDigOptions[] = [];
   const runtime = ManagedRuntime.make(
     GameDigService.makeLayer((options) => {
       calls.push(options);
-      return Promise.resolve(result);
+      return Promise.resolve(makeGameDigResult(queryPort));
     })
   );
 
@@ -94,7 +91,7 @@ describe("GameDigService boundary", () => {
       type: "counterstrike2",
     };
 
-    const { calls } = await captureQuery(query, makeGameDigResult(27_015));
+    const { calls } = await captureQuery(query, 27_015);
     expect(calls).toEqual([{ ...query, portCache: false }]);
     expect(Object.hasOwn(calls[0] ?? {}, "listenUdpPort")).toBe(false);
   });
@@ -123,7 +120,7 @@ describe("GameDigService boundary", () => {
       port: 2302,
       type: "arma3",
     };
-    const { calls } = await captureQuery(query, makeGameDigResult(2303));
+    const { calls } = await captureQuery(query, 2303);
     expect(calls[0]?.port).toBe(2302);
     expect(calls[0]?.givenPortOnly).toBe(false);
   });
@@ -164,13 +161,13 @@ describe("GameDigService boundary", () => {
       { telnetPassword: TEST_CREDENTIAL },
       { token: TEST_CREDENTIAL },
     ];
+    const results = await Promise.all(
+      options.map((option) =>
+        captureQuery({ ...BASE_QUERY, ...option, debug: true })
+      )
+    );
 
-    for (const option of options) {
-      const { calls } = await captureQuery({
-        ...BASE_QUERY,
-        ...option,
-        debug: true,
-      });
+    for (const { calls } of results) {
       expect(calls[0]?.debug).toBe(false);
     }
 
@@ -202,7 +199,7 @@ describe("GameDigService boundary", () => {
 
   test("credential-bearing service logs never serialize credential values", async () => {
     const capturedLogs: string[] = [];
-    const logger = Logger.make<unknown, void>((options) => {
+    const logger = Logger.make((options) => {
       capturedLogs.push(JSON.stringify(options));
     });
     const runtime = ManagedRuntime.make(

@@ -40,7 +40,7 @@ const queryFixture = async () => {
     return { exchangeCount: fixture.exchangeCount(), query, result };
   } finally {
     await runtime.dispose();
-    await fixture.close();
+    fixture.close();
   }
 };
 

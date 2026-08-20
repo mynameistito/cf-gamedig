@@ -34,8 +34,8 @@ console.info(
   })
 );
 
-const shutdown = async (): Promise<void> => {
-  await fixture.close();
+const shutdown = (): void => {
+  fixture.close();
 };
 
 process.once("SIGINT", shutdown);
