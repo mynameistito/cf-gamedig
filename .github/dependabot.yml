@@ -8,6 +8,10 @@ updates:
       time: "09:00"
       timezone: Pacific/Auckland
     open-pull-requests-limit: 6
+    ignore:
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
     groups:
       effect-stack:
         patterns:
