@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import { Result, Schema } from "effect";
 
-import type { QueryParams } from "../src/container/query-params.ts";
+import type { QueryParams } from "@/container/query-params.ts";
 import {
   parseQueryParams,
   PostQueryRequestSchema,
   toPublicQueryParams,
-} from "../src/container/query-params.ts";
+} from "@/container/query-params.ts";
 import {
   MAX_ADDRESS_LENGTH,
   MAX_CREDENTIAL_LENGTH,
@@ -16,12 +16,12 @@ import {
   MAX_POST_BODY_CHUNKS,
   MAX_PROTOCOL_STRING_LENGTH,
   MAX_TYPE_LENGTH,
-} from "../src/container/request-limits.ts";
-import { makeRequestHandler } from "../src/container/server.ts";
+} from "@/container/request-limits.ts";
+import { makeRequestHandler } from "@/container/server.ts";
 import {
   applyTargetPolicy,
   parseTargetPolicyMode,
-} from "../src/container/target-policy.ts";
+} from "@/container/target-policy.ts";
 
 const BASE_QUERY: QueryParams = {
   attemptTimeout: 10_000,

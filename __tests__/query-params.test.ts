@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import { Result } from "effect";
 
-import type { QueryParams } from "../src/container/query-params.ts";
+import type { QueryParams } from "@/container/query-params.ts";
 import {
   MAX_ATTEMPT_TIMEOUT_MS,
   MAX_RETRIES,
   MAX_SOCKET_TIMEOUT_MS,
   parseQueryParams,
-} from "../src/container/query-params.ts";
+} from "@/container/query-params.ts";
 
 const parse = (search: string) =>
   parseQueryParams(

@@ -3,9 +3,9 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Logger, ManagedRuntime, References } from "effect";
 import { games } from "gamedig";
 
-import { mapGameDigError } from "../../src/container/gamedig/errors.ts";
-import { GameDigService } from "../../src/container/gamedig/service.ts";
-import type { QueryParams } from "../../src/container/query-params.ts";
+import { mapGameDigError } from "@/container/gamedig/errors.ts";
+import { GameDigService } from "@/container/gamedig/service.ts";
+import type { QueryParams } from "@/container/query-params.ts";
 
 type CapturedGameDigOptions = QueryParams & {
   readonly portCache: false;

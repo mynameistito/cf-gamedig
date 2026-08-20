@@ -1,7 +1,8 @@
 import { Clock, Context, Effect, Layer, Schema } from "effect";
 import { GameDig } from "gamedig";
 
-import type { QueryParams } from "../query-params.ts";
+import type { QueryParams } from "@/container/query-params.ts";
+
 import { GameDigError } from "./errors.ts";
 import type { GameDigResult } from "./schema.ts";
 import { GameDigResultSchema } from "./schema.ts";

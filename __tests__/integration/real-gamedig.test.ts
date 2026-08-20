@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import { Effect, ManagedRuntime, References } from "effect";
 
-import { GameDigService } from "../../src/container/gamedig/service.ts";
-import type { QueryParams } from "../../src/container/query-params.ts";
+import { GameDigService } from "@/container/gamedig/service.ts";
+import type { QueryParams } from "@/container/query-params.ts";
+
 import { startQuake3Fixture } from "../fixtures/quake3-server.ts";
 
 const queryFixture = async () => {

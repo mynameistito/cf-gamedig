@@ -7,7 +7,8 @@ import {
   readInternalRequestId,
   REQUEST_ID_HEADER,
   withRequestIdHeader,
-} from "../request-correlation.ts";
+} from "@/request-correlation.ts";
+
 import { parseGameTypeQuery } from "./game-type.ts";
 import { mapGameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";

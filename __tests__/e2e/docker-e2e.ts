@@ -2,7 +2,8 @@ import { strict as assert } from "node:assert";
 
 import { Result, Schema } from "effect";
 
-import { GameDigResultSchema } from "../../src/container/gamedig/schema.ts";
+import { GameDigResultSchema } from "@/container/gamedig/schema.ts";
+
 import { QUAKE3_FIXTURE_PORT } from "../fixtures/quake3-server.ts";
 
 const APP_IMAGE = "cf-gamedig-e2e-app:local";
