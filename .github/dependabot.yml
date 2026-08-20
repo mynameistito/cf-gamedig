@@ -1,0 +1,46 @@
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Pacific/Auckland
+    open-pull-requests-limit: 6
+    groups:
+      effect-stack:
+        patterns:
+          - effect
+          - "@effect/platform-*"
+      development-tooling:
+        patterns:
+          - "@cloudflare/*"
+          - "@types/*"
+          - alchemy
+          - "eslint-*"
+          - oxfmt
+          - oxlint
+          - typescript
+          - ultracite
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:15"
+      timezone: Pacific/Auckland
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Pacific/Auckland
+    open-pull-requests-limit: 2
