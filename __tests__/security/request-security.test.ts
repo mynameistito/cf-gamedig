@@ -92,10 +92,11 @@ describe("request size and field limits", () => {
         method: "POST",
       })
     );
+    const responseBody: unknown = await response.json();
     expect(response.status).toBe(413);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(calls).toHaveLength(0);
-    expect(await response.json()).toEqual({
+    expect(responseBody).toEqual({
       error: {
         message: `POST /query body exceeds ${MAX_POST_BODY_BYTES} bytes`,
         type: "PayloadTooLarge",

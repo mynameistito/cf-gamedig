@@ -130,7 +130,12 @@ describe("request correlation", () => {
       ),
       (request) => {
         forwardedRequests.push(request);
-        return containerHandler(request);
+        return containerHandler(
+          new Request(request.url, {
+            headers: request.headers,
+            method: request.method,
+          })
+        );
       },
       openProtection()
     );
@@ -173,9 +178,16 @@ describe("request correlation", () => {
         },
         method: "POST",
       }),
-      (request) => {
+      async (request) => {
         observedRequests.push(request.clone());
-        return containerHandler(request);
+        const forwardedBody = await request.arrayBuffer();
+        return containerHandler(
+          new Request(request.url, {
+            body: forwardedBody,
+            headers: request.headers,
+            method: request.method,
+          })
+        );
       },
       { authToken: TEST_AUTH_TOKEN, rateLimit: ALLOWING_RATE_LIMIT }
     );
