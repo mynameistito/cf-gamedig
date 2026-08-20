@@ -6,6 +6,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 COPY src/container ./src/container
+COPY src/request-correlation.ts ./src/request-correlation.ts
 
 ENV PORT=8080
 EXPOSE 8080
