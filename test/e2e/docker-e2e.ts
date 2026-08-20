@@ -41,9 +41,6 @@ interface CommandResult {
   readonly stdout: string;
 }
 
-const errorText = (error: unknown): string =>
-  error instanceof Error ? (error.stack ?? error.message) : String(error);
-
 const runCommand = async (
   command: string,
   args: readonly string[],
@@ -185,7 +182,7 @@ const waitForHealthUntil = async (
     }
     failure = `HTTP ${response.status}: ${text}`;
   } catch (error) {
-    failure = errorText(error);
+    failure = String(error);
   }
 
   if (Date.now() >= deadline) {
@@ -300,7 +297,7 @@ const readDiagnostic = async (containerName: string): Promise<string> => {
     const logs = await readContainerLogs(containerName);
     return `--- ${containerName} logs ---\n${logs || "(no logs)"}`;
   } catch (error) {
-    return `--- unable to read ${containerName} logs ---\n${errorText(error)}`;
+    return `--- unable to read ${containerName} logs ---\n${String(error)}`;
   }
 };
 
