@@ -1,46 +1,98 @@
 import { describe, expect, test } from "bun:test";
 
-import { Effect } from "effect";
-import { TestConsole } from "effect/testing";
+import { Console, Effect } from "effect";
 
-import { containerLoggingLayer } from "@/container/logging.ts";
+import {
+  containerLoggingLayer,
+  logContainerHttpCompletion,
+} from "@/container/logging.ts";
+import { makeHttpLogPresentation } from "@/http-logging.ts";
+import type { HttpCompletionMetadata } from "@/request-correlation.ts";
 
-describe("container logging", () => {
-  test("emits annotated Effect events as one compact JSON line", async () => {
-    const output = await Effect.runPromise(
-      Effect.gen(function* captureLogOutput() {
-        yield* Effect.logInfo("Container HTTP request completed").pipe(
-          Effect.annotateLogs({
-            elapsedMs: 4007,
-            event: "container_http_completed",
-            method: "GET",
-            requestId: "test-request-id",
-            route: "/query",
-            status: 504,
-          }),
-          Effect.provide(containerLoggingLayer)
-        );
-        return yield* TestConsole.logLines;
-      }).pipe(Effect.provide(TestConsole.layer))
-    );
+interface CapturedConsoleCall {
+  readonly line: string;
+  readonly method: "error" | "info" | "warn";
+}
 
-    expect(output).toHaveLength(1);
-    const [line = ""] = output;
-    const serialized = String(line);
-    expect(serialized).not.toMatch(/[\r\n]/u);
+const captureContainerCompletion = async (metadata: HttpCompletionMetadata) => {
+  const calls: CapturedConsoleCall[] = [];
+  const record = (method: CapturedConsoleCall["method"]) =>
+    (...args: readonly unknown[]): void => {
+      const [line = ""] = args;
+      calls.push({ line: String(line), method });
+    };
+  const testConsole: Console.Console = Object.assign(Object.create(console), {
+    error: record("error"),
+    info: record("info"),
+    warn: record("warn"),
+  });
 
-    const parsed: unknown = JSON.parse(serialized);
-    expect(parsed).toMatchObject({
-      annotations: {
+  await Effect.runPromise(
+    logContainerHttpCompletion(metadata).pipe(
+      Effect.provide(containerLoggingLayer),
+      Effect.provideService(Console.Console, testConsole)
+    )
+  );
+
+  return calls;
+};
+
+describe("HTTP logging", () => {
+  test("formats Worker and Container traffic summaries", () => {
+    const metadata: HttpCompletionMetadata = {
+      elapsedMs: 31,
+      method: "GET",
+      requestId: "test-request-id",
+      route: "/query",
+      status: 200,
+    };
+
+    expect(makeHttpLogPresentation("Worker", metadata)).toEqual({
+      level: "info",
+      message: "Worker GET /query 200 31ms",
+    });
+    expect(makeHttpLogPresentation("Container", metadata)).toEqual({
+      level: "info",
+      message: "Container GET /query 200 31ms",
+    });
+  });
+
+  test("maps HTTP status classes to Cloudflare console severity", async () => {
+    const cases = [
+      [200, "info", "INFO"],
+      [302, "info", "INFO"],
+      [404, "warn", "WARN"],
+      [504, "error", "ERROR"],
+    ] as const;
+
+    for (const [status, method, level] of cases) {
+      const calls = await captureContainerCompletion({
         elapsedMs: 4007,
-        event: "container_http_completed",
         method: "GET",
         requestId: "test-request-id",
         route: "/query",
-        status: 504,
-      },
-      level: "INFO",
-      message: "Container HTTP request completed",
-    });
+        status,
+      });
+
+      expect(calls).toHaveLength(1);
+      const [call] = calls;
+      expect(call).toBeDefined();
+      expect(call?.method).toBe(method);
+      expect(call?.line).not.toMatch(/[\r\n]/u);
+
+      const parsed: unknown = JSON.parse(call?.line ?? "null");
+      expect(parsed).toMatchObject({
+        annotations: {
+          elapsedMs: 4007,
+          event: "container_http_completed",
+          method: "GET",
+          requestId: "test-request-id",
+          route: "/query",
+          status,
+        },
+        level,
+        message: `Container GET /query ${status} 4007ms`,
+      });
+    }
   });
 });
