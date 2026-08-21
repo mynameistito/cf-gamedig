@@ -16,7 +16,8 @@ interface CapturedConsoleCall {
 
 const captureContainerCompletion = async (metadata: HttpCompletionMetadata) => {
   const calls: CapturedConsoleCall[] = [];
-  const record = (method: CapturedConsoleCall["method"]) =>
+  const record =
+    (method: CapturedConsoleCall["method"]) =>
     (...args: readonly unknown[]): void => {
       const [line = ""] = args;
       calls.push({ line: String(line), method });
