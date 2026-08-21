@@ -1,4 +1,4 @@
-import { Effect, ManagedRuntime, Result, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Result, Schema } from "effect";
 
 import {
   createRequestId,
@@ -12,6 +12,7 @@ import {
 import { parseGameTypeQuery } from "./game-type.ts";
 import { mapGameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";
+import { containerLoggingLayer } from "./logging.ts";
 import type { QueryParams } from "./query-params.ts";
 import {
   findSensitiveQueryParameter,
@@ -28,7 +29,9 @@ import {
 } from "./target-policy.ts";
 import type { TargetPolicyMode } from "./target-policy.ts";
 
-const runtime = ManagedRuntime.make(GameDigService.layer);
+const runtime = ManagedRuntime.make(
+  Layer.mergeAll(GameDigService.layer, containerLoggingLayer)
+);
 const taggedError = Schema.TaggedError;
 
 class InvalidJsonError extends taggedError<InvalidJsonError>()("InvalidJson", {
