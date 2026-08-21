@@ -17,14 +17,17 @@ const logWorkerHttpCompletion = (metadata: HttpCompletionMetadata): void => {
   });
 
   switch (presentation.level) {
-    case "error":
+    case "error": {
       console.error(line);
       break;
-    case "warn":
+    }
+    case "warn": {
       console.warn(line);
       break;
-    default:
+    }
+    default: {
       console.info(line);
+    }
   }
 };
 
