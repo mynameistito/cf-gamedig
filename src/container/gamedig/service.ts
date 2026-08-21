@@ -34,6 +34,27 @@ const toGameDigQueryOptions = (input: QueryParams): GameDigQueryOptions => ({
 const safeFailureCause = (cause: unknown): string =>
   cause instanceof Error ? cause.name : "Unknown GameDig failure";
 
+const formatGameDigTarget = (host: string, port?: number): string => {
+  if (port === undefined) {
+    return host;
+  }
+  return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
+};
+
+const formatGameDigStartedMessage = (
+  type: string,
+  host: string,
+  port?: number
+): string => `GameDig query started: ${type} ${formatGameDigTarget(host, port)}`;
+
+const formatGameDigCompletedMessage = (
+  type: string,
+  host: string,
+  queryPort: number,
+  elapsedMs: number
+): string =>
+  `GameDig query completed: ${type} ${formatGameDigTarget(host, queryPort)} ${elapsedMs}ms`;
+
 export class GameDigService extends Context.Service<
   GameDigService,
   GameDigServiceDefinition
@@ -56,8 +77,13 @@ export class GameDigService extends Context.Service<
                 : { ...queryContextWithoutPort, port };
             const startedAt = clock.currentTimeMillisUnsafe();
 
-            yield* Effect.logInfo("GameDig query started").pipe(
-              Effect.annotateLogs(queryContext)
+            yield* Effect.logInfo(
+              formatGameDigStartedMessage(type, host, port)
+            ).pipe(
+              Effect.annotateLogs({
+                event: "gamedig_query_started",
+                ...queryContext,
+              })
             );
 
             const externalResult = yield* Effect.tryPromise({
@@ -87,9 +113,18 @@ export class GameDigService extends Context.Service<
               )
             );
 
-            yield* Effect.logInfo("GameDig query completed").pipe(
+            const elapsedMs = clock.currentTimeMillisUnsafe() - startedAt;
+            yield* Effect.logInfo(
+              formatGameDigCompletedMessage(
+                type,
+                host,
+                result.queryPort,
+                elapsedMs
+              )
+            ).pipe(
               Effect.annotateLogs({
-                elapsedMs: clock.currentTimeMillisUnsafe() - startedAt,
+                elapsedMs,
+                event: "gamedig_query_completed",
                 ...queryContext,
                 players: result.numplayers,
                 queryPort: result.queryPort,
