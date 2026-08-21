@@ -29,6 +29,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Fix
+        run: |
+          bun run fix
+          git diff
+
       - name: Check
         run: bun run check
 
