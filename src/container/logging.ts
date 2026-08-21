@@ -12,12 +12,15 @@ const logHttpMessage = (
   message: string
 ): Effect.Effect<void> => {
   switch (level) {
-    case "error":
+    case "error": {
       return Effect.logError(message);
-    case "warn":
+    }
+    case "warn": {
       return Effect.logWarning(message);
-    default:
+    }
+    default: {
       return Effect.logInfo(message);
+    }
   }
 };
 
