@@ -45,7 +45,8 @@ const formatGameDigStartedMessage = (
   type: string,
   host: string,
   port?: number
-): string => `GameDig query started: ${type} ${formatGameDigTarget(host, port)}`;
+): string =>
+  `GameDig query started: ${type} ${formatGameDigTarget(host, port)}`;
 
 const formatGameDigCompletedMessage = (
   type: string,
