@@ -197,7 +197,7 @@ describe("GameDigService boundary", () => {
     }
   });
 
-  test("credential-bearing service logs never serialize credential values", async () => {
+  test("credential-bearing service logs keep safe target-aware messages", async () => {
     const capturedLogs: string[] = [];
     const logger = Logger.make((options) => {
       capturedLogs.push(JSON.stringify(Logger.formatStructured.log(options)));
@@ -226,6 +226,16 @@ describe("GameDigService boundary", () => {
     }
 
     expect(capturedLogs.length).toBeGreaterThanOrEqual(2);
+    const [started = "", completed = ""] = capturedLogs;
+    expect(started).toContain(
+      '"message":"GameDig query started: minecraft play.example.com"'
+    );
+    expect(started).toContain('"event":"gamedig_query_started"');
+    expect(completed).toMatch(
+      /"message":"GameDig query completed: minecraft play\.example\.com:27015 \d+ms"/u
+    );
+    expect(completed).toContain('"event":"gamedig_query_completed"');
+
     const serialized = capturedLogs.join("\n");
     expect(serialized).not.toContain(TEST_CREDENTIAL);
     expect(serialized).not.toContain("password");

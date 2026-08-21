@@ -2,8 +2,34 @@ import { Container, getContainer } from "@cloudflare/containers";
 import type { StopParams } from "@cloudflare/containers";
 import type { InferEnv } from "alchemy/Cloudflare";
 
+import { makeHttpLogPresentation } from "@/http-logging.ts";
+import type { HttpCompletionMetadata } from "@/request-correlation.ts";
+
 import type { Worker } from "../../alchemy.run.ts";
 import { handleWorkerRequest } from "./handler.ts";
+
+const logWorkerHttpCompletion = (metadata: HttpCompletionMetadata): void => {
+  const presentation = makeHttpLogPresentation("Worker", metadata);
+  const line = JSON.stringify({
+    event: "worker_http_completed",
+    message: presentation.message,
+    ...metadata,
+  });
+
+  switch (presentation.level) {
+    case "error": {
+      console.error(line);
+      break;
+    }
+    case "warn": {
+      console.warn(line);
+      break;
+    }
+    default: {
+      console.info(line);
+    }
+  }
+};
 
 export class GameDigContainer extends Container {
   override defaultPort = 8080;
@@ -58,11 +84,7 @@ export default {
         authToken: env.WORKER_AUTH_TOKEN,
         rateLimit: env.QUERY_RATE_LIMIT,
       },
-      (metadata) => {
-        console.info(
-          JSON.stringify({ event: "worker_http_completed", ...metadata })
-        );
-      }
+      logWorkerHttpCompletion
     );
   },
 };

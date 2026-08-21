@@ -12,7 +12,10 @@ import {
 import { parseGameTypeQuery } from "./game-type.ts";
 import { mapGameDigError } from "./gamedig/errors.ts";
 import { GameDigService } from "./gamedig/service.ts";
-import { containerLoggingLayer } from "./logging.ts";
+import {
+  containerLoggingLayer,
+  logContainerHttpCompletion,
+} from "./logging.ts";
 import type { QueryParams } from "./query-params.ts";
 import {
   findSensitiveQueryParameter,
@@ -444,11 +447,7 @@ export const makeContainerRequestHandler = (
       requestId
     );
 
-    await runtime.runPromise(
-      Effect.logInfo("Container HTTP request completed").pipe(
-        Effect.annotateLogs({ event: "container_http_completed", ...metadata })
-      )
-    );
+    await runtime.runPromise(logContainerHttpCompletion(metadata));
 
     return response;
   };

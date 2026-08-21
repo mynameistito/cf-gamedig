@@ -6,6 +6,7 @@ COPY package.json bun.lock tsconfig.json ./
 RUN bun install --frozen-lockfile --production
 
 COPY src/container ./src/container
+COPY src/http-logging.ts ./src/http-logging.ts
 COPY src/request-correlation.ts ./src/request-correlation.ts
 
 ENV PORT=8080
