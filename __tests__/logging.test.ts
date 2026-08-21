@@ -65,15 +65,22 @@ describe("HTTP logging", () => {
       [504, "error", "ERROR"],
     ] as const;
 
-    for (const [status, method, level] of cases) {
-      const calls = await captureContainerCompletion({
-        elapsedMs: 4007,
-        method: "GET",
-        requestId: "test-request-id",
-        route: "/query",
+    const results = await Promise.all(
+      cases.map(async ([status, method, level]) => ({
+        calls: await captureContainerCompletion({
+          elapsedMs: 4007,
+          method: "GET",
+          requestId: "test-request-id",
+          route: "/query",
+          status,
+        }),
+        level,
+        method,
         status,
-      });
+      }))
+    );
 
+    for (const { calls, level, method, status } of results) {
       expect(calls).toHaveLength(1);
       const [call] = calls;
       expect(call).toBeDefined();
