@@ -3,7 +3,9 @@ import { Effect, Logger } from "effect";
 import { makeHttpLogPresentation } from "@/http-logging.ts";
 import type { HttpCompletionMetadata } from "@/request-correlation.ts";
 
-export const containerLoggingLayer = Logger.layer([Logger.consoleJson]);
+export const containerLoggingLayer = Logger.layer([
+  Logger.withLeveledConsole(Logger.formatJson),
+]);
 
 const logHttpMessage = (
   level: "error" | "info" | "warn",
