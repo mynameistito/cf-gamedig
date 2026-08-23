@@ -5,14 +5,14 @@
     "": {
       "name": "cf-gamedig-container",
       "dependencies": {
-        "effect": "4.0.0-rc.110",
+        "effect": "4.0.0-rc.111",
         "gamedig": "5.3.3",
       },
       "devDependencies": {
         "@cloudflare/containers": "0.3.7",
         "@cloudflare/workers-types": "5.20260819.1",
-        "@effect/platform-bun": "4.0.0-rc.110",
-        "@effect/platform-node": "4.0.0-rc.110",
+        "@effect/platform-bun": "4.0.0-rc.111",
+        "@effect/platform-node": "4.0.0-rc.111",
         "@types/bun": "1.3.14",
         "@types/gamedig": "5.0.3",
         "alchemy": "2.0.0-beta.72",
@@ -118,11 +118,11 @@
 
     "@distilled.cloud/planetscale": ["@distilled.cloud/planetscale@1.0.0-rc.4", "", { "dependencies": { "@distilled.cloud/core": "1.0.0-rc.4" }, "peerDependencies": { "effect": ">=4.0.0-beta.104 || >=4.0.0" } }, "sha512-7EwQF+AGahkVgCKo5lgWXbewcJ1xGCjwctTk8FfmdtUAWwNdmXAysIMdfw4mOYADLB8HMw6XZ3TTV6H7xYyq0w=="],
 
-    "@effect/platform-bun": ["@effect/platform-bun@4.0.0-rc.110", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.110" }, "peerDependencies": { "effect": "^4.0.0-rc.110" } }, "sha512-f4AcFTWVwGby9RvSitqAcG/McN8OCDy7LW8PYRG4NIOO2eYphlW73S5Z7jm3UDP+FmIwwzjfgfIfBYkfPR+YfA=="],
+    "@effect/platform-bun": ["@effect/platform-bun@4.0.0-rc.111", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.111" }, "peerDependencies": { "effect": "^4.0.0-rc.111" } }, "sha512-z6MF1ztw8oSvh4nlvI90wraB63ib5K67JPaSYtz5K9IIAgjXgXYC0hjbcqF+PlC9ytlQmu8tWzk2+yGePWWe5A=="],
 
-    "@effect/platform-node": ["@effect/platform-node@4.0.0-rc.110", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.110", "mime": "^4.1.0", "undici": "^8.7.0" }, "peerDependencies": { "effect": "^4.0.0-rc.110", "redis": ">=5.0.0 <7.0.0" } }, "sha512-poj6VxTc2kRDowUHgjGXAZL2nWHTyGi/18607jK+pV9A9CH/wqZ4NeYj38rij95j5SiZ3U7Y1iOsk2Vfnr4GEw=="],
+    "@effect/platform-node": ["@effect/platform-node@4.0.0-rc.111", "", { "dependencies": { "@effect/platform-node-shared": "^4.0.0-rc.111", "mime": "^4.1.0", "undici": "^8.10.0" }, "peerDependencies": { "effect": "^4.0.0-rc.111", "redis": ">=5.0.0 <7.0.0" } }, "sha512-oy1i7HsOGg/5r+DuBe5+ddmnUhnXmyZFPFPXZCBdO/RQpHK3PIFe1/2UMGxZE+ngDymrSksuQTSgQLF6P+MLqw=="],
 
-    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.110", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.0" }, "peerDependencies": { "effect": "^4.0.0-rc.110" } }, "sha512-P8EZloxS7RtCOSL3VSBPyqSenUm93xLbXf9jkWoy67cibZ2wgZ9nAou9iN8f1i4vzgxUsWtDuy6BEmg67np6Zw=="],
+    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.0-rc.111", "", { "dependencies": { "@types/ws": "^8.18.1", "ws": "^8.21.3" }, "peerDependencies": { "effect": "^4.0.0-rc.111" } }, "sha512-iES0Q9vmjhaUKqeW9ceonuD45MUg/Ouk08LzRSptZ+B5qB0w9WlRjDmUz5TJmY2betNop5FRI5k4AD4mtQt3Bw=="],
 
     "@effect/sql-d1": ["@effect/sql-d1@4.0.0-rc.110", "", { "dependencies": { "@cloudflare/workers-types": "^5.20260708.1" }, "peerDependencies": { "effect": "^4.0.0-rc.110" } }, "sha512-QSOJVPW9x9f5+x5GIfznBwz1UL81GfGX3sEtFgHJ4Ub6zsredVfv14Eex7SNxDM6nf/7zwSbh5YWQMTHV6oNmQ=="],
 
@@ -724,7 +724,7 @@
 
     "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
 
-    "effect": ["effect@4.0.0-rc.110", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "fast-check": "^4.9.0", "msgpackr": "^2.0.4" } }, "sha512-ega6FTJ8CS2of7tHZiADvgyJyV999Q6tZ9juE56V81O0jw6flRwydaPNtyfvP2a5LL9PZrse8A1jnNUD5sWVHg=="],
+    "effect": ["effect@4.0.0-rc.111", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "fast-check": "^4.9.0", "msgpackr": "^2.0.5" } }, "sha512-ASd5L58EIR0CUNueZNKKjSsyOCd+2alxOAIaTcHaqkJkPsaYSsw5Cg/cfANk5K4Jr2YsX756xvX11shzqsreWA=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.411", "", {}, "sha512-gglkxzokjHfawpGxq75XdBV2/l3BAPzrsMs70qgaZdTW5rpV1tC4MdgJVP9fN126bODA4ZJQkn1wryEzJyQXIg=="],
 
