@@ -1,10 +1,5 @@
 {
-  "entry": [
-    "alchemy.run.ts",
-    "src/container/server.ts",
-    "src/worker/index.ts",
-    "__tests__/**/*.ts"
-  ],
+  "entry": ["alchemy.run.ts", "src/worker/index.ts", "__tests__/**/*.ts"],
   "project": ["src/**/*.ts", "__tests__/**/*.ts"],
   "ignoreExportsUsedInFile": true
 }

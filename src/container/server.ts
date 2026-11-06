@@ -525,11 +525,6 @@ export const makeContainerRequestHandler = (
   };
 };
 
-/** Default container handler using the default target policy. */
-export const handleRequest = makeContainerRequestHandler(
-  DEFAULT_TARGET_POLICY_MODE
-);
-
 /**
  * Dispose the shared Effect runtime.
  * @returns A promise that resolves after disposal.

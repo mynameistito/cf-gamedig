@@ -619,7 +619,7 @@ This is an existing Bun/TypeScript/Effect project. Normal editing, dependency in
 
 | Requirement | Used for |
 | --- | --- |
-| [Bun](https://bun.sh/) | Package management, scripts, tests, and Container runtime. CI and the Docker image use Bun `1.3.14`. |
+| [Bun](https://bun.sh/) | Package management, scripts, tests, and Container runtime. CI and the Docker image use Bun `1.4.4`. |
 | Git | Repository workflow. |
 | Docker-compatible CLI and engine | Full local Container development and `docker build .`. |
 | Cloudflare account | Deployment only. |
@@ -677,6 +677,7 @@ Repository tooling can be run natively from PowerShell:
 bun install
 bun run typecheck
 bun run check
+bun run knip
 bun test
 docker build .
 ```
@@ -719,17 +720,19 @@ Before submitting a change, run:
 bun install --frozen-lockfile
 bun run typecheck
 bun run check
+bun run knip
 bun test
 docker build .
 ```
 
-The repository's `Verify` GitHub Actions workflow runs the same verification categories on pull requests to `main` using Bun `1.3.14`:
+The repository's `Verify` GitHub Actions workflow runs the following verification categories on pull requests to `main` using Bun `1.4.4`:
 
 1. frozen dependency install
 2. typecheck
 3. Ultracite check
-4. tests
-5. Docker image build
+4. Knip unused-code check
+5. tests and coverage
+6. Docker image build and E2E test
 
 ## Deployment
 
@@ -751,7 +754,7 @@ The default Alchemy profile is `default` when `--profile` is omitted.
 
 Worker API authentication is separate from Alchemy's Cloudflare login.
 
-The default deployment is open. To enable Bearer-token authentication, set a non-empty `CF_GAMEDIG_AUTH_TOKEN` in the environment running Alchemy. `alchemy.run.ts` reads it with `Config.redacted(...)`, so the resolved Worker binding is treated as secret configuration rather than committed source text.
+The default deployment is open. To enable Bearer-token authentication, set a non-empty `CF_GAMEDIG_AUTH_TOKEN` in the environment running Alchemy. `alchemy.run.ts` reads it with `Config.Redacted(...)`, so the resolved Worker binding is treated as secret configuration rather than committed source text.
 
 Bash / WSL:
 
