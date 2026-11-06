@@ -39,4 +39,5 @@ const shutdown = (): void => {
 };
 
 process.once("SIGINT", shutdown);
+
 process.once("SIGTERM", shutdown);

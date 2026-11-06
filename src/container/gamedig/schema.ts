@@ -13,6 +13,7 @@ const PasswordStringSchema = Schema.String.pipe(
     SchemaTransformation.transform({
       decode: (value) => {
         const normalized = value.toLowerCase();
+
         return normalized === "true" || normalized === "yes" || value === "1";
       },
       encode: (value) => (value ? "1" : "0"),
@@ -42,4 +43,7 @@ export const GameDigResultSchema = Schema.Struct({
   version: Schema.String,
 });
 
+/**
+ * Decoded GameDig server response.
+ */
 export type GameDigResult = typeof GameDigResultSchema.Type;

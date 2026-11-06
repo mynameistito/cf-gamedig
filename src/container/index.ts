@@ -36,5 +36,10 @@ const shutdown = async (): Promise<void> => {
   await httpServer.stop();
 };
 
-process.once("SIGTERM", shutdown);
-process.once("SIGINT", shutdown);
+process.once("SIGTERM", () => {
+  void shutdown();
+});
+
+process.once("SIGINT", () => {
+  void shutdown();
+});

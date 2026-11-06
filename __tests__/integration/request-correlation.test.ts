@@ -17,6 +17,7 @@ import type { WorkerProtection } from "@/worker/handler.ts";
 
 const REQUEST_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 const TEST_AUTH_TOKEN = "TEST_AUTH_TOKEN_DO_NOT_FORWARD";
 const TEST_CREDENTIAL = "TEST_CREDENTIAL_DO_NOT_LOG";
 
@@ -32,13 +33,17 @@ const openProtection = (): WorkerProtection => ({
 const forwardedRequestId = (requests: readonly Request[]): string => {
   expect(requests).toHaveLength(1);
   const [request] = requests;
+
   if (request === undefined) {
     throw new Error("Expected a forwarded request");
   }
+
   const requestId = request.headers.get(INTERNAL_REQUEST_ID_HEADER);
+
   if (requestId === null) {
     throw new Error("Expected internal request ID");
   }
+
   return requestId;
 };
 
@@ -57,25 +62,31 @@ describe("request correlation", () => {
       }),
       (request) => {
         requests.push(request);
+
         return Response.json({ healthy: true });
       },
       openProtection(),
-      (metadata) => completions.push(metadata)
+      (metadata) => {
+        completions.push(metadata);
+      }
     );
 
     const requestId = forwardedRequestId(requests);
     expect(requestId).toMatch(REQUEST_ID_PATTERN);
     expect(requestId).not.toBe(callerId);
     expect(response.headers.get(REQUEST_ID_HEADER)).toBe(requestId);
-    expect(completions).toEqual([expect.objectContaining({ requestId })]);
+    expect(completions).toHaveLength(1);
+    expect(completions[0]?.requestId).toBe(requestId);
   });
 
   test("Worker-generated errors are correlated without forwarding", async () => {
     let forwarded = false;
+
     const response = await handleWorkerRequest(
       new Request("https://api.example.com/private"),
       () => {
         forwarded = true;
+
         return new Response("unused");
       },
       openProtection()
@@ -164,17 +175,20 @@ describe("request correlation", () => {
       readonly query: QueryParams;
       readonly requestId?: string;
     }[] = [];
+
     const containerHandler = makeRequestHandler((query, context) => {
       observed.push(
         context.requestId === undefined
           ? { query }
           : { query, requestId: context.requestId }
       );
+
       return Response.json({
         metadata: makeResponseMetadata(context.requestId, context.startedAt),
         success: true,
       });
     });
+
     const forwardedRequests: Request[] = [];
 
     const response = await handleWorkerRequest(
@@ -184,6 +198,7 @@ describe("request correlation", () => {
       ),
       (request) => {
         forwardedRequests.push(request);
+
         return containerHandler(
           new Request(request.url, {
             headers: request.headers,
@@ -195,37 +210,40 @@ describe("request correlation", () => {
     );
 
     const requestId = forwardedRequestId(forwardedRequests);
+
     const body: {
       readonly metadata?: { readonly requestId?: unknown };
       readonly success?: boolean;
     } = await response.json();
+
     expect(response.status).toBe(200);
     expect(response.headers.get(REQUEST_ID_HEADER)).toBe(requestId);
     expect(body.success).toBe(true);
     expect(body.metadata?.requestId).toBe(requestId);
-    expect(observed).toEqual([
-      {
-        query: expect.objectContaining({
-          host: "example.com",
-          port: 25_565,
-          type: "minecraft",
-        }),
-        requestId,
-      },
-    ]);
+    expect(observed).toHaveLength(1);
+    expect(observed[0]?.requestId).toBe(requestId);
+    expect(observed[0]?.query).toMatchObject({
+      host: "example.com",
+      port: 25_565,
+      type: "minecraft",
+    });
   });
 
   test("POST body, credentials, and correlation cross Worker -> Container without Authorization", async () => {
     const observedQueries: QueryParams[] = [];
+
     const observedForwarding: {
       readonly authorization: string | null;
       readonly method: string;
       readonly requestId: string | null;
     }[] = [];
+
     const containerHandler = makeRequestHandler((query) => {
       observedQueries.push(query);
+
       return Response.json({ success: true });
     });
+
     const body = JSON.stringify({
       host: "example.com",
       options: { password: TEST_CREDENTIAL },
@@ -249,6 +267,7 @@ describe("request correlation", () => {
           requestId: request.headers.get(INTERNAL_REQUEST_ID_HEADER),
         });
         const forwardedBody = await request.arrayBuffer();
+
         return containerHandler(
           new Request(request.url, {
             body: forwardedBody,
@@ -275,6 +294,7 @@ describe("request correlation", () => {
 
   test("safe completion metadata excludes query values, bodies, authorization, and credentials", () => {
     const requestId = createRequestId();
+
     const request = new Request(
       `https://api.example.com/query?token=${TEST_CREDENTIAL}`,
       {
@@ -286,12 +306,14 @@ describe("request correlation", () => {
         method: "POST",
       }
     );
+
     const metadata = makeHttpCompletionMetadata(
       request,
       new Response(null, { status: 504 }),
       12.8,
       requestId
     );
+
     const serialized = JSON.stringify(metadata);
 
     expect(metadata).toEqual({
@@ -301,6 +323,7 @@ describe("request correlation", () => {
       route: "/query",
       status: 504,
     });
+
     for (const sensitive of [
       TEST_AUTH_TOKEN,
       TEST_CREDENTIAL,

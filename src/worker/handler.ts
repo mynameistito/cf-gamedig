@@ -19,6 +19,9 @@ interface QueryRateLimit {
   }) => Promise<{ readonly success: boolean }>;
 }
 
+/**
+ * Authentication and optional rate limiting used by the Worker.
+ */
 export interface WorkerProtection {
   readonly authToken: string;
   readonly rateLimit?: QueryRateLimit;
@@ -60,20 +63,24 @@ const isAllowedMethod = (method: string, pathname: string): boolean => {
   if (pathname === "/health") {
     return method === "GET";
   }
+
   return method === "GET" || method === "POST";
 };
 
 const sha256 = async (value: string): Promise<Uint8Array<ArrayBuffer>> => {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
+
   return new Uint8Array(digest);
 };
 
 const digestToHex = (digest: Uint8Array<ArrayBuffer>): string => {
   let hex = "";
+
   for (const byte of digest) {
     hex += byte.toString(16).padStart(2, "0");
   }
+
   return hex;
 };
 
@@ -86,11 +93,13 @@ const authenticate = async (
   }
 
   const authorization = request.headers.get("authorization");
+
   if (authorization === null) {
     return { status: "unauthorized" };
   }
 
   const [scheme, suppliedToken, ...extraParts] = authorization.split(" ");
+
   if (
     scheme?.toLowerCase() !== "bearer" ||
     suppliedToken === undefined ||
@@ -104,7 +113,9 @@ const authenticate = async (
     sha256(expectedToken),
     sha256(suppliedToken),
   ]);
+
   let difference = 0;
+
   for (const [index, expectedByte] of expectedDigest.entries()) {
     difference += Math.abs(expectedByte - (suppliedDigest[index] ?? 0));
   }
@@ -131,11 +142,13 @@ const prepareForwardRequest = (
   try {
     forwardedRequest.headers.delete("authorization");
     forwardedRequest.headers.set(INTERNAL_REQUEST_ID_HEADER, requestId);
+
     return forwardedRequest;
   } catch {
     const headers = new Headers(forwardedRequest.headers);
     headers.delete("authorization");
     headers.set(INTERNAL_REQUEST_ID_HEADER, requestId);
+
     return new Request(forwardedRequest, { headers });
   }
 };
@@ -177,6 +190,7 @@ export const handleWorkerRequest = async (
 
   const complete = (response: Response): Response => {
     const correlatedResponse = withRequestIdHeader(response, requestId);
+
     if (recordHttpCompletion !== undefined) {
       try {
         const completion = makeHttpCompletionMetadata(
@@ -185,6 +199,7 @@ export const handleWorkerRequest = async (
           Date.now() - startedAt,
           requestId
         );
+
         const cloudflareRay = request.headers.get(CLOUDFLARE_RAY_HEADER);
         recordHttpCompletion(
           cloudflareRay === null ? completion : { ...completion, cloudflareRay }
@@ -193,6 +208,7 @@ export const handleWorkerRequest = async (
         // Observability is best-effort and must not change request outcomes.
       }
     }
+
     return correlatedResponse;
   };
 
@@ -208,6 +224,7 @@ export const handleWorkerRequest = async (
 
   if (pathname === "/query") {
     const authentication = await authenticate(request, protection.authToken);
+
     if (authentication.status === "unauthorized") {
       return complete(
         error("Missing or invalid bearer token", "Unauthorized", 401)
@@ -224,6 +241,7 @@ export const handleWorkerRequest = async (
       const { success } = await protection.rateLimit.limit({
         key: clientRateLimitKey(request, authentication),
       });
+
       if (!success) {
         return complete(error("Query rate limit exceeded", "RateLimited", 429));
       }

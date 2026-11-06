@@ -4,7 +4,7 @@
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
-    "types": ["bun", "@cloudflare/workers-types"],
+    "types": ["bun", "node", "@cloudflare/workers-types"],
 
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,

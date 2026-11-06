@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { Schema } from "effect";
+
 import {
   CLOUDFLARE_RAY_HEADER,
   CLOUDFLARE_REQUEST_ID_HEADER,
@@ -11,6 +13,14 @@ import type { WorkerProtection } from "@/worker/handler.ts";
 
 const TEST_CREDENTIAL = ["TEST", "CREDENTIAL"].join("_");
 const TEST_AUTH_TOKEN = ["TEST", "AUTH", "TOKEN"].join("_");
+
+const MetadataSchema = Schema.Struct({
+  elapsedMs: Schema.Number,
+  requestId: Schema.String,
+  timestamp: Schema.String,
+});
+
+const MetadataBodySchema = Schema.Struct({ metadata: MetadataSchema });
 
 const ALLOWING_RATE_LIMIT: NonNullable<WorkerProtection["rateLimit"]> = {
   limit: () => Promise.resolve({ success: true }),
@@ -28,9 +38,11 @@ const protectedWorker = (authToken = TEST_AUTH_TOKEN): WorkerProtection => ({
 
 const makeRateLimit = (success: boolean) => {
   const keys: string[] = [];
+
   const rateLimit: NonNullable<WorkerProtection["rateLimit"]> = {
     limit: ({ key }) => {
       keys.push(key);
+
       return Promise.resolve({ success });
     },
   };
@@ -40,8 +52,10 @@ const makeRateLimit = (success: boolean) => {
 
 const makeForwarder = (downstreamResponse: Response) => {
   const requests: Request[] = [];
+
   const forwardRequest = (request: Request): Response => {
     requests.push(request);
+
     return downstreamResponse;
   };
 
@@ -51,9 +65,11 @@ const makeForwarder = (downstreamResponse: Response) => {
 const getOnlyRequest = (requests: readonly Request[]): Request => {
   expect(requests).toHaveLength(1);
   const [request] = requests;
+
   if (request === undefined) {
     throw new Error("Expected one forwarded request");
   }
+
   return request;
 };
 
@@ -61,6 +77,7 @@ describe("Worker forwarding boundary", () => {
   test("forwards GET /health", async () => {
     const downstreamResponse = Response.json({ healthy: true });
     const { forwardRequest, requests } = makeForwarder(downstreamResponse);
+
     const request = new Request("https://api.example.com/health", {
       headers: { "x-request-id": "health-request" },
     });
@@ -78,6 +95,7 @@ describe("Worker forwarding boundary", () => {
   test("forwards GET /query with the query string intact in open mode", async () => {
     const downstreamResponse = Response.json({ success: true });
     const { forwardRequest, requests } = makeForwarder(downstreamResponse);
+
     const request = new Request(
       "https://api.example.com/query?type=minecraft&host=example.com&port=25565"
     );
@@ -92,11 +110,13 @@ describe("Worker forwarding boundary", () => {
   test("forwards POST /query body and content type intact", async () => {
     const downstreamResponse = Response.json({ success: true });
     const { forwardRequest, requests } = makeForwarder(downstreamResponse);
+
     const body = JSON.stringify({
       host: "example.com",
       options: { password: TEST_CREDENTIAL },
       type: "palworld",
     });
+
     const request = new Request("https://api.example.com/query", {
       body,
       headers: { "content-type": "application/json; charset=utf-8" },
@@ -122,6 +142,7 @@ describe("Worker forwarding boundary", () => {
       forwardRequest,
       openProtection()
     );
+
     const body: unknown = await response.json();
 
     expect(requests).toHaveLength(0);
@@ -144,6 +165,7 @@ describe("Worker forwarding boundary", () => {
       forwardRequest,
       openProtection()
     );
+
     const body: unknown = await response.json();
 
     expect(requests).toHaveLength(0);
@@ -159,6 +181,7 @@ describe("Worker forwarding boundary", () => {
     const results = await Promise.all(
       [400, 415, 502, 504].map(async (status) => {
         const responseBody = `downstream-${status}`;
+
         const downstreamResponse = new Response(responseBody, {
           headers: {
             "content-type": "application/problem+json",
@@ -166,7 +189,9 @@ describe("Worker forwarding boundary", () => {
           },
           status,
         });
+
         const { forwardRequest } = makeForwarder(downstreamResponse);
+
         const response = await handleWorkerRequest(
           new Request(
             "https://api.example.com/query?type=minecraft&host=example.com"
@@ -174,6 +199,7 @@ describe("Worker forwarding boundary", () => {
           forwardRequest,
           openProtection()
         );
+
         const body = await response.text();
 
         return { body, downstreamResponse, response, responseBody, status };
@@ -198,12 +224,14 @@ describe("Worker forwarding boundary", () => {
       "binding failed with credential=",
       TEST_CREDENTIAL,
     ].join("");
+
     const failingForwarders = [
       () => {
         throw new Error(sensitiveMessage);
       },
       () => Promise.reject(new Error(sensitiveMessage)),
     ];
+
     const results = await Promise.all(
       failingForwarders.map(async (forwardRequest) => {
         const response = await handleWorkerRequest(
@@ -211,7 +239,9 @@ describe("Worker forwarding boundary", () => {
           forwardRequest,
           openProtection()
         );
+
         const body: unknown = await response.json();
+
         return { body, response };
       })
     );
@@ -245,6 +275,7 @@ describe("Worker authentication", () => {
       forwardRequest,
       protectedWorker()
     );
+
     const body: unknown = await response.json();
 
     expect(requests).toHaveLength(0);
@@ -273,6 +304,7 @@ describe("Worker authentication", () => {
       forwardRequest,
       protectedWorker()
     );
+
     const body: unknown = await response.json();
     const serializedBody = JSON.stringify(body);
 
@@ -347,6 +379,7 @@ describe("Worker authentication", () => {
 describe("Worker query rate limiting", () => {
   test("allows a request before forwarding and partitions open mode by client IP", async () => {
     const { keys, rateLimit } = makeRateLimit(true);
+
     const { forwardRequest, requests } = makeForwarder(
       Response.json({ success: true })
     );
@@ -400,6 +433,7 @@ describe("Worker query rate limiting", () => {
       forwardRequest,
       { authToken: "", rateLimit }
     );
+
     const body: unknown = await response.json();
 
     expect(requests).toHaveLength(0);
@@ -425,6 +459,7 @@ describe("Worker query rate limiting", () => {
       forwardRequest,
       { authToken: "" }
     );
+
     const body: unknown = await response.json();
 
     expect(requests).toHaveLength(0);
@@ -441,9 +476,11 @@ describe("Worker query rate limiting", () => {
 
   test("redacts rate-limit failures and does not contact the Container", async () => {
     const sensitiveMessage = `rate limit binding failed with ${TEST_AUTH_TOKEN}`;
+
     const rateLimit: NonNullable<WorkerProtection["rateLimit"]> = {
       limit: () => Promise.reject(new Error(sensitiveMessage)),
     };
+
     const { forwardRequest, requests } = makeForwarder(new Response("unused"));
 
     const response = await handleWorkerRequest(
@@ -456,6 +493,7 @@ describe("Worker query rate limiting", () => {
       forwardRequest,
       { authToken: TEST_AUTH_TOKEN, rateLimit }
     );
+
     const body: unknown = await response.json();
     const serializedBody = JSON.stringify(body);
 
@@ -474,17 +512,10 @@ describe("Worker response metadata", () => {
     body: { readonly metadata?: unknown },
     requestId: string
   ): void => {
-    // SAFETY: the response body is a JSON object and the metadata contract is
-    // established by the field-by-field assertions immediately below.
-    const metadata = body.metadata as {
-      readonly elapsedMs?: unknown;
-      readonly requestId?: unknown;
-      readonly timestamp?: unknown;
-    };
+    const metadata = Schema.decodeUnknownSync(MetadataSchema)(body.metadata);
+
     expect(metadata?.requestId).toBe(requestId);
-    expect(metadata?.elapsedMs).toEqual(expect.any(Number));
-    expect(Number(metadata?.elapsedMs)).toBeGreaterThanOrEqual(0);
-    expect(metadata?.timestamp).toEqual(expect.any(String));
+    expect(metadata.elapsedMs).toBeGreaterThanOrEqual(0);
     expect(metadata?.timestamp).toMatch(ISO_TIMESTAMP_PATTERN);
   };
 
@@ -504,12 +535,15 @@ describe("Worker response metadata", () => {
       forwardRequest,
       protection
     );
-    // SAFETY: Worker JSON responses are plain objects; the metadata contract is
-    // asserted by validateMetadata immediately below.
-    const body = (await response.json()) as { readonly metadata?: unknown };
+
+    const body = Schema.decodeUnknownSync(MetadataBodySchema)(
+      await response.json()
+    );
+
     const requestId = response.headers.get(REQUEST_ID_HEADER);
     expect(requestId).not.toBeNull();
     validateMetadata(body, requestId ?? "");
+
     return { body, requestId: requestId ?? "" };
   };
 
@@ -581,18 +615,20 @@ describe("Worker response metadata", () => {
       ),
       (request) => {
         requests.push(request);
+
         return Response.json({ success: true });
       },
       openProtection(),
-      (metadata) => completions.push(metadata)
+      (metadata) => {
+        completions.push(metadata);
+      }
     );
 
     expect(response.headers.get(REQUEST_ID_HEADER)).toBe(rayId);
     expect(requests).toHaveLength(1);
     expect(requests[0]?.headers.get(INTERNAL_REQUEST_ID_HEADER)).toBe(rayId);
-    expect(completions).toEqual([
-      expect.objectContaining({ requestId: rayId }),
-    ]);
+    expect(completions).toHaveLength(1);
+    expect(completions[0]?.requestId).toBe(rayId);
   });
 
   test("prefers cf-request-id over CF-Ray", async () => {
@@ -605,13 +641,14 @@ describe("Worker response metadata", () => {
         "https://api.example.com/query?type=minecraft&host=example.com",
         {
           headers: {
-            [CLOUDFLARE_REQUEST_ID_HEADER]: requestId,
             [CLOUDFLARE_RAY_HEADER]: rayId,
+            [CLOUDFLARE_REQUEST_ID_HEADER]: requestId,
           },
         }
       ),
       (request) => {
         requests.push(request);
+
         return Response.json({ success: true });
       },
       openProtection()

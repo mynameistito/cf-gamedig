@@ -15,19 +15,31 @@ const logHttpMessage = (
     case "error": {
       return Effect.logError(message);
     }
+
     case "warn": {
       return Effect.logWarning(message);
     }
-    default: {
+
+    case "info": {
       return Effect.logInfo(message);
+    }
+
+    default: {
+      throw new Error("Unexpected log level");
     }
   }
 };
 
+/**
+ * Record a structured container HTTP completion event.
+ * @param metadata - Safe completion fields.
+ * @returns An effect that writes the log event.
+ */
 export const logContainerHttpCompletion = (
   metadata: HttpCompletionMetadata
 ): Effect.Effect<void> => {
   const presentation = makeHttpLogPresentation("Container", metadata);
+
   return logHttpMessage(presentation.level, presentation.message).pipe(
     Effect.annotateLogs({ event: "container_http_completed", ...metadata })
   );

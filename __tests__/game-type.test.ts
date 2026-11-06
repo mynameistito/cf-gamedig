@@ -13,19 +13,25 @@ const findOldOnlyId = (): string => {
       game.extra?.old_id !== undefined &&
       !Object.hasOwn(games, game.extra.old_id)
   );
+
   const oldId = oldOnlyEntry?.extra?.old_id;
+
   if (oldId === undefined) {
     throw new Error("Installed GameDig registry has no old-only game ID");
   }
+
   return oldId;
 };
 
 const makeFakeHandler = () => {
   const calls: QueryParams[] = [];
+
   const handler = makeRequestHandler((query) => {
     calls.push(query);
+
     return Response.json({ success: true });
   });
+
   return { calls, handler };
 };
 
@@ -48,6 +54,7 @@ describe("GameDig game type parsing", () => {
     const [protocolId] = Object.keys(protocols);
     expect(currentId).toBeDefined();
     expect(protocolId).toBeDefined();
+
     if (currentId === undefined || protocolId === undefined) {
       throw new Error("Installed GameDig registries are unexpectedly empty");
     }
@@ -67,6 +74,7 @@ describe("GameDig game type parsing", () => {
   test("trims surrounding whitespace", () => {
     const result = parseGameType("  minecraft  ", false);
     expect(Result.isSuccess(result)).toBe(true);
+
     if (Result.isSuccess(result)) {
       expect(result.success).toBe("minecraft");
     }
@@ -76,11 +84,13 @@ describe("GameDig game type parsing", () => {
 describe("/query game ID validation", () => {
   test("returns 400 without calling GameDig for an unknown ID", async () => {
     const { calls, handler } = makeFakeHandler();
+
     const response = await handler(
       new Request(
         "https://container.local/query?type=definitely-not-a-gamedig-id&host=example.com"
       )
     );
+
     const body: unknown = await response.json();
 
     expect(response.status).toBe(400);
@@ -93,11 +103,13 @@ describe("/query game ID validation", () => {
 
   test("accepts current and protocol IDs without networking in the test seam", async () => {
     const { calls, handler } = makeFakeHandler();
+
     const currentResponse = await handler(
       new Request(
         "https://container.local/query?type=minecraft&host=example.com"
       )
     );
+
     const protocolResponse = await handler(
       new Request(
         "https://container.local/query?type=protocol-valve&host=example.com"
@@ -115,20 +127,24 @@ describe("/query game ID validation", () => {
   test("applies checkOldIDs before invoking the query seam", async () => {
     const oldId = findOldOnlyId();
     const disabled = makeFakeHandler();
+
     const disabledResponse = await disabled.handler(
       new Request(
         `https://container.local/query?type=${encodeURIComponent(oldId)}&host=example.com`
       )
     );
+
     expect(disabledResponse.status).toBe(400);
     expect(disabled.calls).toHaveLength(0);
 
     const enabled = makeFakeHandler();
+
     const enabledResponse = await enabled.handler(
       new Request(
         `https://container.local/query?type=${encodeURIComponent(oldId)}&host=example.com&checkOldIDs=true`
       )
     );
+
     expect(enabledResponse.status).toBe(200);
     expect(enabled.calls).toHaveLength(1);
     expect(enabled.calls[0]?.type).toBe(oldId);
@@ -136,6 +152,7 @@ describe("/query game ID validation", () => {
 
   test("normalizes a trimmed POST type before the query seam", async () => {
     const { calls, handler } = makeFakeHandler();
+
     const response = await handler(
       new Request("https://container.local/query", {
         body: JSON.stringify({ host: "example.com", type: "  minecraft  " }),

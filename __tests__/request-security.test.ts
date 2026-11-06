@@ -46,14 +46,17 @@ const ipv6 = (...parts: readonly string[]): string => parts.join(":");
 
 const makeFakeHandler = (targetPolicyMode: "open" | "public-safe" = "open") => {
   const calls: QueryParams[] = [];
+
   const handler = makeRequestHandler((query) => {
     calls.push(query);
+
     return Response.json({
       query: toPublicQueryParams(query),
       server: { name: "Fake server" },
       success: true,
     });
   }, targetPolicyMode);
+
   return { calls, handler };
 };
 
@@ -62,15 +65,19 @@ const getQuery = async (
   targetPolicyMode: "open" | "public-safe" = "open"
 ) => {
   const { calls, handler } = makeFakeHandler(targetPolicyMode);
+
   const response = await handler(
     new Request(`https://container.local/query?${query}`)
   );
+
   const body: unknown = await response.json();
+
   return { body, calls, response };
 };
 
 const postQuery = async (body: string) => {
   const { calls, handler } = makeFakeHandler();
+
   const response = await handler(
     new Request("https://container.local/query", {
       body,
@@ -78,7 +85,9 @@ const postQuery = async (body: string) => {
       method: "POST",
     })
   );
+
   const responseBody: unknown = await response.json();
+
   return { body: responseBody, calls, response };
 };
 
@@ -88,9 +97,11 @@ const postStream = async (
 ) => {
   const { calls, handler } = makeFakeHandler();
   const headers = new Headers({ "content-type": "application/json" });
+
   if (contentLength !== undefined) {
     headers.set("content-length", contentLength);
   }
+
   const response = await handler(
     new Request("https://container.local/query", {
       body: stream,
@@ -98,7 +109,9 @@ const postStream = async (
       method: "POST",
     })
   );
+
   const responseBody: unknown = await response.json();
+
   return { body: responseBody, calls, response };
 };
 
@@ -126,6 +139,7 @@ describe("request size limits", () => {
 
   test("rejects oversized streamed bodies without content-length and cancels the stream", async () => {
     let cancelled = false;
+
     const stream = new ReadableStream<Uint8Array>({
       cancel() {
         cancelled = true;
@@ -134,6 +148,7 @@ describe("request size limits", () => {
         controller.enqueue(new Uint8Array(MAX_POST_BODY_BYTES + 1));
       },
     });
+
     const { calls, response } = await postStream(stream);
 
     expect(response.status).toBe(413);
@@ -148,6 +163,7 @@ describe("request size limits", () => {
         controller.close();
       },
     });
+
     const { calls, response } = await postStream(stream, "1");
 
     expect(response.status).toBe(413);
@@ -160,9 +176,11 @@ describe("request size limits", () => {
         for (let index = 0; index <= MAX_POST_BODY_CHUNKS; index += 1) {
           controller.enqueue(new Uint8Array([120]));
         }
+
         controller.close();
       },
     });
+
     const { body, calls, response } = await postStream(stream);
 
     expect(response.status).toBe(413);
@@ -180,6 +198,7 @@ describe("request size limits", () => {
     const getRequest = parseGet(
       `type=${"m".repeat(MAX_TYPE_LENGTH)}&host=${"h".repeat(MAX_HOST_LENGTH)}&address=${"a".repeat(MAX_ADDRESS_LENGTH)}&username=${"u".repeat(MAX_PROTOCOL_STRING_LENGTH)}`
     );
+
     expect(Result.isSuccess(getRequest)).toBe(true);
 
     const postRequest = Schema.decodeUnknownResult(PostQueryRequestSchema)({
@@ -190,6 +209,7 @@ describe("request size limits", () => {
       },
       type: "m".repeat(MAX_TYPE_LENGTH),
     });
+
     expect(Result.isSuccess(postRequest)).toBe(true);
   });
 
@@ -200,6 +220,7 @@ describe("request size limits", () => {
       `type=minecraft&host=example.com&address=${"a".repeat(MAX_ADDRESS_LENGTH + 1)}`,
       `type=minecraft&host=example.com&username=${"u".repeat(MAX_PROTOCOL_STRING_LENGTH + 1)}`,
     ];
+
     const results = await Promise.all(cases.map((query) => getQuery(query)));
 
     for (const { body, calls, response } of results) {
@@ -220,9 +241,11 @@ describe("request size limits", () => {
       "telnetPassword",
       "token",
     ] as const;
+
     const results = await Promise.all(
       credentialNames.map(async (credentialName) => {
         const credential = `credential-${credentialName}-${"x".repeat(MAX_CREDENTIAL_LENGTH)}`;
+
         const result = await postQuery(
           JSON.stringify({
             host: "example.com",
@@ -230,6 +253,7 @@ describe("request size limits", () => {
             type: "minecraft",
           })
         );
+
         return { ...result, credential };
       })
     );
@@ -248,6 +272,7 @@ describe("request size limits", () => {
 
   test("rejects oversized GET credentials before parsing without echoing them", async () => {
     const credential = `credential-${"x".repeat(MAX_CREDENTIAL_LENGTH + 1)}`;
+
     const { body, calls, response } = await getQuery(
       `type=minecraft&host=example.com&password=${credential}`
     );
@@ -274,6 +299,7 @@ describe("target policy configuration", () => {
   test("rejects unknown target policy modes", () => {
     const result = parseTargetPolicyMode("private-only");
     expect(Result.isFailure(result)).toBe(true);
+
     if (Result.isFailure(result)) {
       expect(result.failure._tag).toBe("InvalidTargetPolicyConfiguration");
       expect(result.failure.message).not.toContain("private-only");
@@ -393,10 +419,12 @@ describe("public-safe target policy", () => {
   test("checks logical host and connection address independently", async () => {
     const publicAddress = ipv4(8, 8, 8, 8);
     const privateAddress = ipv4(127, 0, 0, 1);
+
     const blockedAddress = await getQuery(
       `type=minecraft&host=game.example.test&address=${privateAddress}`,
       "public-safe"
     );
+
     expect(blockedAddress.response.status).toBe(400);
     expect(blockedAddress.calls).toHaveLength(0);
     expect(blockedAddress.body).toMatchObject({
@@ -412,6 +440,7 @@ describe("public-safe target policy", () => {
       `type=minecraft&host=${privateAddress}&address=${publicAddress}`,
       "public-safe"
     );
+
     expect(blockedHost.response.status).toBe(400);
     expect(blockedHost.calls).toHaveLength(0);
 
@@ -419,6 +448,7 @@ describe("public-safe target policy", () => {
       `type=minecraft&host=game.example.test&address=${publicAddress}`,
       "public-safe"
     );
+
     expect(allowed.response.status).toBe(200);
     expect(allowed.calls[0]).toMatchObject({
       address: publicAddress,

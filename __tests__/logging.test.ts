@@ -16,17 +16,20 @@ interface CapturedConsoleCall {
 
 const captureContainerCompletion = async (metadata: HttpCompletionMetadata) => {
   const calls: CapturedConsoleCall[] = [];
+
   const record =
     (method: CapturedConsoleCall["method"]) =>
     (...args: readonly unknown[]): void => {
       const [line = ""] = args;
       calls.push({ line: String(line), method });
     };
-  const testConsole: Console.Console = Object.assign(Object.create(console), {
+
+  const testConsole: Console.Console = {
+    ...console,
     error: record("error"),
     info: record("info"),
     warn: record("warn"),
-  });
+  };
 
   await Effect.runPromise(
     logContainerHttpCompletion(metadata).pipe(

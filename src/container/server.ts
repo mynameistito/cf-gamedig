@@ -11,12 +11,13 @@ import {
 
 import { parseGameTypeQuery } from "./game-type.ts";
 import { mapGameDigError } from "./gamedig/errors.ts";
+import type { GameDigResult } from "./gamedig/schema.ts";
 import { GameDigService } from "./gamedig/service.ts";
 import {
   containerLoggingLayer,
   logContainerHttpCompletion,
 } from "./logging.ts";
-import type { QueryParams } from "./query-params.ts";
+import type { PublicQueryParams, QueryParams } from "./query-params.ts";
 import {
   findSensitiveQueryParameter,
   parsePostQuery,
@@ -35,6 +36,7 @@ import type { TargetPolicyMode } from "./target-policy.ts";
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(GameDigService.layer, containerLoggingLayer)
 );
+
 const taggedError = Schema.TaggedError;
 
 class InvalidJsonError extends taggedError<InvalidJsonError>()("InvalidJson", {
@@ -50,6 +52,7 @@ type ExecuteQuery = (
   query: QueryParams,
   context: RequestContext
 ) => Response | Promise<Response>;
+
 type ExecuteParsedQuery = (query: QueryParams) => Response | Promise<Response>;
 
 interface CollectedBody {
@@ -61,9 +64,26 @@ interface CancelableReadable {
   readonly cancel: () => Promise<void>;
 }
 
-const respondJson = <T extends object>(
+type ResponseBody =
+  | ReturnType<typeof mapGameDigError>
+  | {
+      readonly error: { readonly message: string; readonly type: string };
+      readonly success: false;
+    }
+  | {
+      readonly query: PublicQueryParams;
+      readonly server: GameDigResult;
+      readonly success: true;
+    }
+  | {
+      readonly service: string;
+      readonly status: string;
+      readonly success: true;
+    };
+
+const respondJson = (
   context: RequestContext,
-  body: T,
+  body: ResponseBody,
   status = 200
 ): Response =>
   Response.json(
@@ -117,6 +137,7 @@ const payloadTooLargeResponse = (
 const parseJson = (text: string): Result.Result<unknown, InvalidJsonError> => {
   try {
     const value: unknown = JSON.parse(text);
+
     return Result.succeed(value);
   } catch {
     return Result.fail(
@@ -144,6 +165,7 @@ const readBodyChunks = async (
   Result.Result<CollectedBody, InvalidJsonError | PayloadTooLargeError>
 > => {
   const chunk = await readBodyChunk(reader);
+
   if (Result.isFailure(chunk)) {
     return Result.fail(chunk.failure);
   }
@@ -153,14 +175,18 @@ const readBodyChunks = async (
   }
 
   const byteLength = collected.byteLength + chunk.success.value.byteLength;
+
   if (byteLength > MAX_POST_BODY_BYTES) {
     return Result.fail(payloadTooLarge());
   }
+
   if (collected.chunks.length >= MAX_POST_BODY_CHUNKS) {
     return Result.fail(payloadTooFragmented());
   }
 
   collected.chunks.push(chunk.success.value);
+
+  // oxlint-disable-next-line typescript/return-await -- Keep the existing recursive promise timing.
   return readBodyChunks(reader, {
     byteLength,
     chunks: collected.chunks,
@@ -170,10 +196,12 @@ const readBodyChunks = async (
 const decodeBody = ({ byteLength, chunks }: CollectedBody): string => {
   const bytes = new Uint8Array(byteLength);
   let offset = 0;
+
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
   return new TextDecoder().decode(bytes);
 };
 
@@ -189,12 +217,15 @@ const readPostBody = async (
   request: Request
 ): Promise<Result.Result<string, InvalidJsonError | PayloadTooLargeError>> => {
   const contentLength = request.headers.get("content-length");
+
   if (contentLength !== null) {
     const declaredBytes = Number(contentLength);
+
     if (Number.isFinite(declaredBytes) && declaredBytes > MAX_POST_BODY_BYTES) {
       if (request.body !== null) {
         await cancelReadable(request.body);
       }
+
       return Result.fail(payloadTooLarge());
     }
   }
@@ -204,12 +235,18 @@ const readPostBody = async (
   }
 
   const reader = request.body.getReader();
+
   try {
+    // Fetch request bodies yield bytes; Cloudflare's ambient reader type exposes `any`.
+    // oxlint-disable-next-line typescript/no-unsafe-argument -- The Fetch body stream contains Uint8Array chunks.
     const body = await readBodyChunks(reader, { byteLength: 0, chunks: [] });
+
     if (Result.isFailure(body)) {
       await cancelReadable(reader);
+
       return Result.fail(body.failure);
     }
+
     return Result.succeed(decodeBody(body.success));
   } finally {
     reader.releaseLock();
@@ -223,15 +260,18 @@ const hasJsonContentType = (request: Request): boolean =>
     ?.trim()
     .toLowerCase() === "application/json";
 
+// oxlint-disable-next-line typescript/promise-function-async -- Preserve the runtime promise and synchronous throws.
 const runQuery: ExecuteQuery = (query, context) => {
   const program = Effect.gen(function* queryGameServer() {
     const gameDig = yield* GameDigService;
+
     return yield* gameDig.query(query);
   }).pipe(
     Effect.match({
       onFailure: (error) => {
         const status = error.kind === "response" ? 502 : 504;
-        return respondJson(context, mapGameDigError(error), status);
+
+        return respondJson(context, { ...mapGameDigError(error) }, status);
       },
       onSuccess: (server) =>
         respondJson(context, {
@@ -254,6 +294,7 @@ const executeValidatedQuery = (
   context: RequestContext
 ): Response | Promise<Response> => {
   const parsedGameType = parseGameTypeQuery(query);
+
   if (Result.isFailure(parsedGameType)) {
     return invalidQueryResponse(
       context,
@@ -266,6 +307,7 @@ const executeValidatedQuery = (
     parsedGameType.success,
     targetPolicyMode
   );
+
   if (Result.isFailure(allowedTarget)) {
     return invalidQueryResponse(
       context,
@@ -283,6 +325,7 @@ const handleGetQuery = (
   executeQuery: ExecuteParsedQuery
 ): Response | Promise<Response> => {
   const sensitiveParameter = findSensitiveQueryParameter(searchParams);
+
   if (sensitiveParameter !== undefined) {
     return invalidQueryResponse(
       context,
@@ -291,6 +334,7 @@ const handleGetQuery = (
   }
 
   const query = parseQueryParams(searchParams);
+
   if (Result.isFailure(query)) {
     return invalidQueryResponse(
       context,
@@ -298,6 +342,8 @@ const handleGetQuery = (
       query.failure._tag
     );
   }
+
+  // oxlint-disable-next-line typescript/return-await -- Preserve existing query promise timing.
   return executeQuery(query.success);
 };
 
@@ -321,6 +367,7 @@ const handlePostQuery = async (
   }
 
   const body = await readPostBody(request);
+
   if (Result.isFailure(body)) {
     return body.failure._tag === "PayloadTooLarge"
       ? payloadTooLargeResponse(context, body.failure)
@@ -328,6 +375,7 @@ const handlePostQuery = async (
   }
 
   const json = parseJson(body.success);
+
   if (Result.isFailure(json)) {
     return invalidQueryResponse(
       context,
@@ -339,11 +387,13 @@ const handlePostQuery = async (
   const postRequest = Schema.decodeUnknownResult(PostQueryRequestSchema)(
     json.success
   );
+
   if (Result.isFailure(postRequest)) {
     return invalidQueryResponse(context, "Invalid POST /query body");
   }
 
   const query = parsePostQuery(postRequest.success);
+
   if (Result.isFailure(query)) {
     return invalidQueryResponse(
       context,
@@ -351,6 +401,8 @@ const handlePostQuery = async (
       query.failure._tag
     );
   }
+
+  // oxlint-disable-next-line typescript/return-await -- Preserve existing query promise timing.
   return executeQuery(query.success);
 };
 
@@ -359,6 +411,7 @@ const methodNotAllowed = (
   allowedMethods: readonly string[]
 ) => {
   const allow = allowedMethods.join(", ");
+
   const response = respondJson(
     context,
     {
@@ -367,7 +420,9 @@ const methodNotAllowed = (
     },
     405
   );
+
   response.headers.set("allow", allow);
+
   return response;
 };
 
@@ -378,6 +433,8 @@ const routeRequest = (
   context: RequestContext
 ): Response | Promise<Response> => {
   const url = new URL(request.url);
+
+  // oxlint-disable-next-line typescript/promise-function-async -- This callback may return a synchronous response.
   const executeParsedQuery: ExecuteParsedQuery = (query) =>
     executeValidatedQuery(query, executeQuery, targetPolicyMode, context);
 
@@ -407,12 +464,20 @@ const routeRequest = (
   if (request.method === "GET") {
     return handleGetQuery(url.searchParams, context, executeParsedQuery);
   }
+
   if (request.method === "POST") {
     return handlePostQuery(request, context, executeParsedQuery);
   }
+
   return methodNotAllowed(context, ["GET", "POST"]);
 };
 
+/**
+ * Create a request handler using the given query executor and target policy.
+ * @param executeQuery - Executor for validated queries.
+ * @param targetPolicyMode - Policy applied to query targets.
+ * @returns An HTTP request handler.
+ */
 export const makeRequestHandler =
   (
     executeQuery: ExecuteQuery,
@@ -421,6 +486,7 @@ export const makeRequestHandler =
   async (request: Request): Promise<Response> => {
     const requestId = readInternalRequestId(request) ?? createRequestId();
     const context: RequestContext = { requestId, startedAt: Date.now() };
+
     const response = await routeRequest(
       request,
       executeQuery,
@@ -431,6 +497,11 @@ export const makeRequestHandler =
     return withRequestIdHeader(response, requestId);
   };
 
+/**
+ * Create the container handler with completion logging.
+ * @param targetPolicyMode - Policy applied to query targets.
+ * @returns An HTTP request handler.
+ */
 export const makeContainerRequestHandler = (
   targetPolicyMode: TargetPolicyMode
 ) => {
@@ -440,6 +511,7 @@ export const makeContainerRequestHandler = (
     const startedAt = Date.now();
     const response = await handler(request);
     const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
+
     const metadata = makeHttpCompletionMetadata(
       request,
       response,
@@ -453,8 +525,14 @@ export const makeContainerRequestHandler = (
   };
 };
 
+/** Default container handler using the default target policy. */
 export const handleRequest = makeContainerRequestHandler(
   DEFAULT_TARGET_POLICY_MODE
 );
 
+/**
+ * Dispose the shared Effect runtime.
+ * @returns A promise that resolves after disposal.
+ */
+// oxlint-disable-next-line typescript/promise-function-async -- Return the runtime's original disposal promise.
 export const disposeRuntime = (): Promise<void> => runtime.dispose();

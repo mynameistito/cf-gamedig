@@ -639,12 +639,15 @@ bun install
 | --- | --- |
 | `bun run dev` | Start Alchemy local development for the Worker + Container stack. |
 | `bun run start` | Run the Bun Container HTTP service directly. |
-| `bun run typecheck` | Run TypeScript with `--noEmit`. |
+| `bun run typecheck` | Run tsrs with `--noEmit`. |
 | `bun test` | Run the Bun test suite. |
 | `bun run check` | Run Ultracite checks. |
 | `bun run fix` | Apply Ultracite fixes. |
+| `bun run knip` | Check for unused files, exports, and dependencies. |
 | `bun run deploy` | Deploy the Alchemy stack. |
 | `bun run destroy` | Destroy the Alchemy stack for the selected profile/stage. |
+
+TypeScript 6 remains a development dependency because the GitHub and SonarJS lint plugins depend on its JavaScript compiler API. The project typecheck uses tsrs independently.
 
 ### Local development
 

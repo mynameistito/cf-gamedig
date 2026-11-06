@@ -2,6 +2,9 @@ import { Schema } from "effect";
 
 const taggedError = Schema.TaggedError;
 
+/**
+ * Failure while querying GameDig or decoding its response.
+ */
 export class GameDigError extends taggedError<GameDigError>()("GameDigError", {
   cause: Schema.Unknown,
   elapsedMs: Schema.Number,
@@ -29,12 +32,18 @@ interface GameDigErrorResponse {
   readonly success: false;
 }
 
+/**
+ * Convert a GameDig failure to a public response.
+ * @param error - GameDig failure to project.
+ * @returns The safe error response.
+ */
 export const mapGameDigError = (error: GameDigError): GameDigErrorResponse => {
   const queryWithoutPort = {
     givenPortOnly: error.givenPortOnly,
     host: error.host,
     type: error.type,
   };
+
   const query =
     error.port === undefined
       ? queryWithoutPort

@@ -22,6 +22,7 @@ const MetadataSchema = Schema.Struct({
   requestId: Schema.String,
   timestamp: Schema.String,
 });
+
 type Metadata = typeof MetadataSchema.Type;
 
 const HealthResponseSchema = Schema.Struct({
@@ -30,6 +31,7 @@ const HealthResponseSchema = Schema.Struct({
   status: Schema.String,
   success: Schema.Boolean,
 });
+
 type HealthResponse = typeof HealthResponseSchema.Type;
 
 const QueryEchoSchema = Schema.Struct({
@@ -39,12 +41,14 @@ const QueryEchoSchema = Schema.Struct({
   port: Schema.Number,
   type: Schema.String,
 });
+
 const QueryResponseSchema = Schema.Struct({
   metadata: MetadataSchema,
   query: QueryEchoSchema,
   server: GameDigResultSchema,
   success: Schema.Boolean,
 });
+
 type QueryResponse = typeof QueryResponseSchema.Type;
 
 interface CommandResult {
@@ -61,7 +65,9 @@ const runCommand = async (
     stderr: "pipe",
     stdout: "pipe",
   });
+
   let timedOut = false;
+
   const timeout = setTimeout(() => {
     timedOut = true;
     subprocess.kill();
@@ -70,14 +76,15 @@ const runCommand = async (
   try {
     const [exitCode, stdout, stderr] = await Promise.all([
       subprocess.exited,
-      Bun.readableStreamToText(subprocess.stdout),
-      Bun.readableStreamToText(subprocess.stderr),
+      new Response(subprocess.stdout).text(),
+      new Response(subprocess.stderr).text(),
     ]);
 
     if (exitCode !== 0) {
       const failure = timedOut
         ? `Command timed out after ${timeoutMs}ms`
         : `Command exited with code ${exitCode}`;
+
       throw new Error(
         [
           `${failure}: ${command} ${args.join(" ")}`,
@@ -102,6 +109,7 @@ const runDocker = (
 
 const parseHealthResponse = (text: string): HealthResponse => {
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(text);
   } catch (error) {
@@ -111,14 +119,17 @@ const parseHealthResponse = (text: string): HealthResponse => {
   }
 
   const decoded = Schema.decodeUnknownResult(HealthResponseSchema)(parsed);
+
   if (Result.isFailure(decoded)) {
     throw new TypeError(`GET /health returned an invalid response: ${text}`);
   }
+
   return decoded.success;
 };
 
 const parseQueryResponse = (text: string): QueryResponse => {
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(text);
   } catch (error) {
@@ -128,14 +139,17 @@ const parseQueryResponse = (text: string): QueryResponse => {
   }
 
   const decoded = Schema.decodeUnknownResult(QueryResponseSchema)(parsed);
+
   if (Result.isFailure(decoded)) {
     throw new TypeError(`GET /query returned an invalid response: ${text}`);
   }
+
   return decoded.success;
 };
 
 const readContainerLogs = async (containerName: string): Promise<string> => {
   const result = await runDocker(["logs", containerName], 10_000);
+
   return [result.stdout, result.stderr]
     .filter((part) => part.length > 0)
     .join("\n");
@@ -147,9 +161,11 @@ const waitForContainerLogUntil = async (
   deadline: number
 ): Promise<string> => {
   const logs = await readContainerLogs(containerName);
+
   if (logs.includes(`"event":"${event}"`)) {
     return logs;
   }
+
   if (Date.now() >= deadline) {
     throw new Error(
       `Timed out waiting for ${event} from ${containerName}\n${logs}`
@@ -157,6 +173,7 @@ const waitForContainerLogUntil = async (
   }
 
   await Bun.sleep(POLL_INTERVAL_MS);
+
   return waitForContainerLogUntil(containerName, event, deadline);
 };
 
@@ -198,11 +215,14 @@ const waitForHealthUntil = async (
   previousFailure: string
 ): Promise<void> => {
   let failure = previousFailure;
+
   try {
     const response = await fetch(`${baseUrl}/health`, {
       signal: AbortSignal.timeout(1000),
     });
+
     const text = await response.text();
+
     if (response.status === 200) {
       const body = parseHealthResponse(text);
       assert.equal(body.success, true, "health success");
@@ -214,8 +234,10 @@ const waitForHealthUntil = async (
         "health cache-control"
       );
       assertRequestIdHeader(response, body.metadata, "health");
+
       return;
     }
+
     failure = `HTTP ${response.status}: ${text}`;
   } catch (error) {
     failure = String(error);
@@ -226,7 +248,8 @@ const waitForHealthUntil = async (
   }
 
   await Bun.sleep(POLL_INTERVAL_MS);
-  return waitForHealthUntil(baseUrl, deadline, failure);
+
+  await waitForHealthUntil(baseUrl, deadline, failure);
 };
 
 const waitForHealth = (baseUrl: string): Promise<void> =>
@@ -243,12 +266,15 @@ const inspectFixtureAddress = async (): Promise<string> => {
     "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
     fixtureContainerName,
   ]);
+
   const address = stdout.trim();
+
   if (!/^\d{1,3}(?:\.\d{1,3}){3}$/u.test(address)) {
     throw new TypeError(
       `Unable to determine fixture container IPv4 address: ${address}`
     );
   }
+
   return address;
 };
 
@@ -256,11 +282,13 @@ const inspectAppPort = async (): Promise<number> => {
   const { stdout } = await runDocker(["port", appContainerName, "8080/tcp"]);
   const match = /127\.0\.0\.1:(?<port>\d+)/u.exec(stdout);
   const port = Number(match?.groups?.port);
+
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new TypeError(
       `Unable to determine mapped Container HTTP port: ${stdout}`
     );
   }
+
   return port;
 };
 
@@ -284,7 +312,9 @@ const queryGameServer = async (
   const response = await fetch(url, {
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
   });
+
   const text = await response.text();
+
   if (response.status !== 200) {
     throw new Error(`GET /query failed with HTTP ${response.status}: ${text}`);
   }
@@ -341,6 +371,7 @@ const cleanupResource = async (args: readonly string[]): Promise<void> => {
 const readDiagnostic = async (containerName: string): Promise<string> => {
   try {
     const logs = await readContainerLogs(containerName);
+
     return `--- ${containerName} logs ---\n${logs || "(no logs)"}`;
   } catch (error) {
     return `--- unable to read ${containerName} logs ---\n${String(error)}`;
@@ -351,6 +382,7 @@ const printDiagnostics = async (): Promise<void> => {
   const diagnostics = await Promise.all(
     [appContainerName, fixtureContainerName].map(readDiagnostic)
   );
+
   for (const diagnostic of diagnostics) {
     console.error(diagnostic);
   }

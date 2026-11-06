@@ -38,6 +38,7 @@ const formatGameDigTarget = (host: string, port?: number): string => {
   if (port === undefined) {
     return host;
   }
+
   return host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`;
 };
 
@@ -56,6 +57,9 @@ const formatGameDigCompletedMessage = (
 ): string =>
   `GameDig query completed: ${type} ${formatGameDigTarget(host, queryPort)} ${elapsedMs}ms`;
 
+/**
+ * Service for querying and decoding GameDig server results.
+ */
 export class GameDigService extends Context.Service<
   GameDigService,
   GameDigServiceDefinition
@@ -72,10 +76,12 @@ export class GameDigService extends Context.Service<
           ): Effect.fn.Return<GameDigResult, GameDigError> {
             const { givenPortOnly, host, port, type } = input;
             const queryContextWithoutPort = { givenPortOnly, host, type };
+
             const queryContext =
               port === undefined
                 ? queryContextWithoutPort
                 : { ...queryContextWithoutPort, port };
+
             const startedAt = clock.currentTimeMillisUnsafe();
 
             yield* Effect.logInfo(
@@ -96,6 +102,8 @@ export class GameDigService extends Context.Service<
                   kind: "query",
                   message: "GameDig query failed",
                 }),
+              // Preserve synchronous throws for Effect.tryPromise to classify.
+              // oxlint-disable-next-line typescript/promise-function-async -- An async wrapper changes synchronous throws.
               try: () => runGameDigQuery(toGameDigQueryOptions(input)),
             });
 
@@ -140,7 +148,8 @@ export class GameDigService extends Context.Service<
       })
     );
 
-  static readonly layer = GameDigService.makeLayer((options) =>
-    GameDig.query(options)
+  static readonly layer = GameDigService.makeLayer(
+    // oxlint-disable-next-line typescript/promise-function-async -- Preserve the query promise and synchronous throws.
+    (options) => GameDig.query(options)
   );
 }

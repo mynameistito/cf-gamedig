@@ -1,10 +1,10 @@
-import { Stack, localState } from "alchemy";
 import {
   Container,
   RateLimit,
   Worker as WorkerResource,
   providers,
-} from "alchemy/Cloudflare";
+} from "@alchemy.run/cloudflare";
+import { Stack, localState } from "alchemy";
 import { Config, Effect } from "effect";
 
 import type { GameDigContainer } from "./src/worker/index.ts";
@@ -14,7 +14,7 @@ const container = Container<GameDigContainer>("cf-gamedig-container", {
   context: import.meta.dirname,
   dockerfile: "Dockerfile",
   env: {
-    CF_GAMEDIG_TARGET_POLICY: Config.string("CF_GAMEDIG_TARGET_POLICY").pipe(
+    CF_GAMEDIG_TARGET_POLICY: Config.String("CF_GAMEDIG_TARGET_POLICY").pipe(
       Config.withDefault("open")
     ),
   },
@@ -40,7 +40,7 @@ export const Worker = WorkerResource("cf-gamedig-worker", {
   env: {
     CONTAINER: container,
     QUERY_RATE_LIMIT: queryRateLimit,
-    WORKER_AUTH_TOKEN: Config.redacted("CF_GAMEDIG_AUTH_TOKEN").pipe(
+    WORKER_AUTH_TOKEN: Config.Redacted("CF_GAMEDIG_AUTH_TOKEN").pipe(
       Config.withDefault("")
     ),
   },
@@ -56,6 +56,7 @@ export default Stack(
   },
   Effect.gen(function* runStack() {
     const worker = yield* Worker;
+
     return { url: worker.url };
   })
 );
