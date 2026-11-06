@@ -5,9 +5,18 @@ import {
   providers,
 } from "@alchemy.run/cloudflare";
 import { Stack, localState } from "alchemy";
-import { Config, Effect } from "effect";
+import { Config, Effect, Result } from "effect";
 
+import { parseRateLimitNamespace } from "./src/rate-limit-namespace.ts";
 import type { GameDigContainer } from "./src/worker/index.ts";
+
+const rateLimitNamespace = parseRateLimitNamespace(
+  process.env.CF_GAMEDIG_RATE_LIMIT_NAMESPACE_ID
+);
+
+if (Result.isFailure(rateLimitNamespace)) {
+  throw new Error(rateLimitNamespace.failure);
+}
 
 const container = Container<GameDigContainer>("cf-gamedig-container", {
   className: "GameDigContainer",
@@ -25,7 +34,7 @@ const container = Container<GameDigContainer>("cf-gamedig-container", {
 });
 
 const queryRateLimit = RateLimit("QUERY_RATE_LIMIT", {
-  namespaceId: 31_001,
+  namespaceId: rateLimitNamespace.success,
   simple: {
     limit: 10,
     period: 60,

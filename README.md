@@ -830,7 +830,7 @@ The service-side compute and abuse-protection boundary are Cloudflare-hosted:
 | --- | --- |
 | Worker | `cf-gamedig-worker`, `nodejs_compat`, observability enabled |
 | Worker auth | `WORKER_AUTH_TOKEN` secret binding sourced from optional `CF_GAMEDIG_AUTH_TOKEN` |
-| Worker rate limit | `QUERY_RATE_LIMIT`, `10` requests / `60` seconds, namespace `31001` |
+| Worker rate limit | `QUERY_RATE_LIMIT`, `10` requests / `60` seconds; namespace defaults to `31001` |
 | Container | `cf-gamedig-container`, `lite`, `instances: 0`, `maxInstances: 1` |
 | Container runtime | Bun image built from this repository's `Dockerfile` |
 | Container target policy | `CF_GAMEDIG_TARGET_POLICY`, default `open`; optional `public-safe` literal filtering |
@@ -850,11 +850,14 @@ There are no hard-coded API credentials or Cloudflare account IDs in the reposit
 | Cloudflare credentials | Deployment only | Configured by Alchemy login | OAuth or another Cloudflare credential method supported by Alchemy. |
 | `CF_GAMEDIG_AUTH_TOKEN` | No | empty / open mode | Non-empty deployment secret enables Bearer authentication for `/query`. |
 | `CF_GAMEDIG_TARGET_POLICY` | No | `open` | Container target policy. Allowed values are `open` and `public-safe`. |
-| `QUERY_RATE_LIMIT` | Worker binding | `10` / `60s`, namespace `31001` | Cloudflare Workers Rate Limiting binding applied to `/query`. |
+| `CF_GAMEDIG_RATE_LIMIT_NAMESPACE_ID` | No | `31001` | Positive integer identifying the account-scoped rate-limit namespace. Use a distinct, account-unique value for each isolated preview stage. |
+| `QUERY_RATE_LIMIT` | Worker binding | `10` / `60s`, namespace defaults to `31001` | Cloudflare Workers Rate Limiting binding applied to `/query`. |
 | `PORT` | Container runtime | `8080` | Port used by the Bun Container HTTP server. |
 | Query credentials | Per request only | unset | Sent through `POST /query` options when a specific GameDig protocol requires them. |
 
 `alchemy.run.ts` currently uses Alchemy `localState()`. Deployment state therefore lives in the local Alchemy state store used by the machine running the stack rather than a shared repository-backed state store.
+
+For an isolated preview, use an explicit Alchemy stage and set `CF_GAMEDIG_RATE_LIMIT_NAMESPACE_ID` to a distinct namespace that is not used by another Worker in the account. Cloudflare shares counters between Workers that use the same namespace ID. Configure a non-empty preview authentication token and the desired target policy before exposing the preview.
 
 ## Security
 
