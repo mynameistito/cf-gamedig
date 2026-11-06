@@ -48,9 +48,11 @@ const makeGameDigResult = (queryPort = 27_015) => ({
 
 const captureQuery = async (query: QueryParams, queryPort = 27_015) => {
   const calls: CapturedGameDigOptions[] = [];
+
   const runtime = ManagedRuntime.make(
     GameDigService.makeLayer((options) => {
       calls.push(options);
+
       return Promise.resolve(makeGameDigResult(queryPort));
     })
   );
@@ -58,11 +60,14 @@ const captureQuery = async (query: QueryParams, queryPort = 27_015) => {
   try {
     const program = Effect.gen(function* runGameDigQuery() {
       const gameDig = yield* GameDigService;
+
       return yield* gameDig.query(query);
     });
+
     const server = await runtime.runPromise(
       Effect.provideService(program, References.MinimumLogLevel, "None")
     );
+
     return { calls, server };
   } finally {
     await runtime.dispose();
@@ -105,6 +110,7 @@ describe("GameDigService boundary", () => {
       host: "ark.example.com",
       type: "ase",
     };
+
     const { calls } = await captureQuery(query);
     expect(calls).toHaveLength(1);
     expect(Object.hasOwn(calls[0] ?? {}, "port")).toBe(false);
@@ -120,6 +126,7 @@ describe("GameDigService boundary", () => {
       port: 2302,
       type: "arma3",
     };
+
     const { calls } = await captureQuery(query, 2303);
     expect(calls[0]?.port).toBe(2302);
     expect(calls[0]?.givenPortOnly).toBe(false);
@@ -161,6 +168,7 @@ describe("GameDigService boundary", () => {
       { telnetPassword: TEST_CREDENTIAL },
       { token: TEST_CREDENTIAL },
     ];
+
     const results = await Promise.all(
       options.map((option) =>
         captureQuery({ ...BASE_QUERY, ...option, debug: true })
@@ -176,6 +184,7 @@ describe("GameDigService boundary", () => {
       debug: true,
       guildId: "123456789012345678",
     });
+
     expect(nonSensitive.calls[0]?.debug).toBe(true);
   });
 
@@ -183,14 +192,18 @@ describe("GameDigService boundary", () => {
     const runtime = ManagedRuntime.make(
       GameDigService.makeLayer(() => Promise.resolve(makeGameDigResult()))
     );
+
     try {
       const program = Effect.gen(function* runGameDigQuery() {
         const gameDig = yield* GameDigService;
+
         return yield* gameDig.query(BASE_QUERY);
       });
+
       const result = await runtime.runPromise(
         Effect.provideService(program, References.MinimumLogLevel, "None")
       );
+
       expect(result.name).toBe("Test server");
     } finally {
       await runtime.dispose();
@@ -199,12 +212,15 @@ describe("GameDigService boundary", () => {
 
   test("credential-bearing service logs keep safe target-aware messages", async () => {
     const capturedLogs: string[] = [];
+
     const logger = Logger.make((options) => {
       capturedLogs.push(JSON.stringify(Logger.formatStructured.log(options)));
     });
+
     const runtime = ManagedRuntime.make(
       GameDigService.makeLayer(() => Promise.resolve(makeGameDigResult()))
     );
+
     const query: QueryParams = {
       ...BASE_QUERY,
       debug: true,
@@ -215,11 +231,13 @@ describe("GameDigService boundary", () => {
     try {
       const program = Effect.gen(function* runGameDigQuery() {
         const gameDig = yield* GameDigService;
+
         return yield* gameDig.query(query);
       }).pipe(
         Effect.provide(Logger.layer([logger])),
         Effect.provideService(References.MinimumLogLevel, "Trace")
       );
+
       await runtime.runPromise(program);
     } finally {
       await runtime.dispose();
@@ -254,6 +272,7 @@ describe("GameDigService boundary", () => {
         Effect.provideService(
           Effect.gen(function* runGameDigQuery() {
             const gameDig = yield* GameDigService;
+
             return yield* gameDig.query(BASE_QUERY);
           }).pipe(
             Effect.match({
@@ -267,6 +286,7 @@ describe("GameDigService boundary", () => {
       );
 
       expect(outcome.status).toBe("failure");
+
       if (outcome.status === "failure") {
         expect(outcome.error.kind).toBe("query");
         expect(outcome.error.cause).toBe("Error");
@@ -289,6 +309,7 @@ describe("GameDigService boundary", () => {
         Effect.provideService(
           Effect.gen(function* runGameDigQuery() {
             const gameDig = yield* GameDigService;
+
             return yield* gameDig.query(BASE_QUERY);
           }).pipe(
             Effect.match({
@@ -302,6 +323,7 @@ describe("GameDigService boundary", () => {
       );
 
       expect(outcome.status).toBe("failure");
+
       if (outcome.status === "failure") {
         expect(outcome.error.kind).toBe("response");
         expect(mapGameDigError(outcome.error).error.type).toBe(

@@ -1,20 +1,29 @@
-import { Stack, localState } from "alchemy";
 import {
   Container,
   RateLimit,
   Worker as WorkerResource,
   providers,
-} from "alchemy/Cloudflare";
-import { Config, Effect } from "effect";
+} from "@alchemy.run/cloudflare";
+import { Stack, localState } from "alchemy";
+import { Config, Effect, Result } from "effect";
 
+import { parseRateLimitNamespace } from "./src/rate-limit-namespace.ts";
 import type { GameDigContainer } from "./src/worker/index.ts";
+
+const rateLimitNamespace = parseRateLimitNamespace(
+  process.env.CF_GAMEDIG_RATE_LIMIT_NAMESPACE_ID
+);
+
+if (Result.isFailure(rateLimitNamespace)) {
+  throw new Error(rateLimitNamespace.failure);
+}
 
 const container = Container<GameDigContainer>("cf-gamedig-container", {
   className: "GameDigContainer",
   context: import.meta.dirname,
   dockerfile: "Dockerfile",
   env: {
-    CF_GAMEDIG_TARGET_POLICY: Config.string("CF_GAMEDIG_TARGET_POLICY").pipe(
+    CF_GAMEDIG_TARGET_POLICY: Config.String("CF_GAMEDIG_TARGET_POLICY").pipe(
       Config.withDefault("open")
     ),
   },
@@ -25,7 +34,7 @@ const container = Container<GameDigContainer>("cf-gamedig-container", {
 });
 
 const queryRateLimit = RateLimit("QUERY_RATE_LIMIT", {
-  namespaceId: 31_001,
+  namespaceId: rateLimitNamespace.success,
   simple: {
     limit: 10,
     period: 60,
@@ -40,7 +49,7 @@ export const Worker = WorkerResource("cf-gamedig-worker", {
   env: {
     CONTAINER: container,
     QUERY_RATE_LIMIT: queryRateLimit,
-    WORKER_AUTH_TOKEN: Config.redacted("CF_GAMEDIG_AUTH_TOKEN").pipe(
+    WORKER_AUTH_TOKEN: Config.Redacted("CF_GAMEDIG_AUTH_TOKEN").pipe(
       Config.withDefault("")
     ),
   },
@@ -56,6 +65,7 @@ export default Stack(
   },
   Effect.gen(function* runStack() {
     const worker = yield* Worker;
+
     return { url: worker.url };
   })
 );

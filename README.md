@@ -619,7 +619,7 @@ This is an existing Bun/TypeScript/Effect project. Normal editing, dependency in
 
 | Requirement | Used for |
 | --- | --- |
-| [Bun](https://bun.sh/) | Package management, scripts, tests, and Container runtime. CI and the Docker image use Bun `1.3.14`. |
+| [Bun](https://bun.sh/) | Package management, scripts, tests, and Container runtime. CI and the Docker image use Bun `1.4.4`. |
 | Git | Repository workflow. |
 | Docker-compatible CLI and engine | Full local Container development and `docker build .`. |
 | Cloudflare account | Deployment only. |
@@ -639,12 +639,17 @@ bun install
 | --- | --- |
 | `bun run dev` | Start Alchemy local development for the Worker + Container stack. |
 | `bun run start` | Run the Bun Container HTTP service directly. |
-| `bun run typecheck` | Run TypeScript with `--noEmit`. |
+| `bun run typecheck` | Run tsrs with `--noEmit`. |
 | `bun test` | Run the Bun test suite. |
 | `bun run check` | Run Ultracite checks. |
 | `bun run fix` | Apply Ultracite fixes. |
+| `bun run knip` | Check for unused files, exports, and dependencies. |
 | `bun run deploy` | Deploy the Alchemy stack. |
 | `bun run destroy` | Destroy the Alchemy stack for the selected profile/stage. |
+
+TypeScript 6 remains a development dependency because the GitHub and SonarJS lint plugins depend on its JavaScript compiler API. The project typecheck uses tsrs independently.
+
+Alchemy 2.0.0-beta.85 and the Effect 4.1.2 packages are aligned as a coordinated runtime upgrade. This version set and its required runtime dependencies are an explicit exception to the seven-day release-age policy; unrelated packages retain that policy. The stack uses local state. Coordinate all clients before changing or migrating any shared Cloudflare state store.
 
 ### Local development
 
@@ -672,6 +677,7 @@ Repository tooling can be run natively from PowerShell:
 bun install
 bun run typecheck
 bun run check
+bun run knip
 bun test
 docker build .
 ```
@@ -714,17 +720,19 @@ Before submitting a change, run:
 bun install --frozen-lockfile
 bun run typecheck
 bun run check
+bun run knip
 bun test
 docker build .
 ```
 
-The repository's `Verify` GitHub Actions workflow runs the same verification categories on pull requests to `main` using Bun `1.3.14`:
+The repository's `Verify` GitHub Actions workflow runs the following verification categories on pull requests to `main` using Bun `1.4.4`:
 
 1. frozen dependency install
 2. typecheck
 3. Ultracite check
-4. tests
-5. Docker image build
+4. Knip unused-code check
+5. tests and coverage
+6. Docker image build and E2E test
 
 ## Deployment
 
@@ -746,7 +754,7 @@ The default Alchemy profile is `default` when `--profile` is omitted.
 
 Worker API authentication is separate from Alchemy's Cloudflare login.
 
-The default deployment is open. To enable Bearer-token authentication, set a non-empty `CF_GAMEDIG_AUTH_TOKEN` in the environment running Alchemy. `alchemy.run.ts` reads it with `Config.redacted(...)`, so the resolved Worker binding is treated as secret configuration rather than committed source text.
+The default deployment is open. To enable Bearer-token authentication, set a non-empty `CF_GAMEDIG_AUTH_TOKEN` in the environment running Alchemy. `alchemy.run.ts` reads it with `Config.Redacted(...)`, so the resolved Worker binding is treated as secret configuration rather than committed source text.
 
 Bash / WSL:
 
@@ -822,7 +830,7 @@ The service-side compute and abuse-protection boundary are Cloudflare-hosted:
 | --- | --- |
 | Worker | `cf-gamedig-worker`, `nodejs_compat`, observability enabled |
 | Worker auth | `WORKER_AUTH_TOKEN` secret binding sourced from optional `CF_GAMEDIG_AUTH_TOKEN` |
-| Worker rate limit | `QUERY_RATE_LIMIT`, `10` requests / `60` seconds, namespace `31001` |
+| Worker rate limit | `QUERY_RATE_LIMIT`, `10` requests / `60` seconds; namespace defaults to `31001` |
 | Container | `cf-gamedig-container`, `lite`, `instances: 0`, `maxInstances: 1` |
 | Container runtime | Bun image built from this repository's `Dockerfile` |
 | Container target policy | `CF_GAMEDIG_TARGET_POLICY`, default `open`; optional `public-safe` literal filtering |
@@ -842,11 +850,14 @@ There are no hard-coded API credentials or Cloudflare account IDs in the reposit
 | Cloudflare credentials | Deployment only | Configured by Alchemy login | OAuth or another Cloudflare credential method supported by Alchemy. |
 | `CF_GAMEDIG_AUTH_TOKEN` | No | empty / open mode | Non-empty deployment secret enables Bearer authentication for `/query`. |
 | `CF_GAMEDIG_TARGET_POLICY` | No | `open` | Container target policy. Allowed values are `open` and `public-safe`. |
-| `QUERY_RATE_LIMIT` | Worker binding | `10` / `60s`, namespace `31001` | Cloudflare Workers Rate Limiting binding applied to `/query`. |
+| `CF_GAMEDIG_RATE_LIMIT_NAMESPACE_ID` | No | `31001` | Positive integer identifying the account-scoped rate-limit namespace. Use a distinct, account-unique value for each isolated preview stage. |
+| `QUERY_RATE_LIMIT` | Worker binding | `10` / `60s`, namespace defaults to `31001` | Cloudflare Workers Rate Limiting binding applied to `/query`. |
 | `PORT` | Container runtime | `8080` | Port used by the Bun Container HTTP server. |
 | Query credentials | Per request only | unset | Sent through `POST /query` options when a specific GameDig protocol requires them. |
 
 `alchemy.run.ts` currently uses Alchemy `localState()`. Deployment state therefore lives in the local Alchemy state store used by the machine running the stack rather than a shared repository-backed state store.
+
+For an isolated preview, use an explicit Alchemy stage and set `CF_GAMEDIG_RATE_LIMIT_NAMESPACE_ID` to a distinct namespace that is not used by another Worker in the account. Cloudflare shares counters between Workers that use the same namespace ID. Configure a non-empty preview authentication token and the desired target policy before exposing the preview.
 
 ## Security
 

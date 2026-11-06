@@ -10,6 +10,7 @@ import { startQuake3Fixture } from "../fixtures/quake3-server.ts";
 const queryFixture = async () => {
   const fixture = await startQuake3Fixture();
   const runtime = ManagedRuntime.make(GameDigService.layer);
+
   const query: QueryParams = {
     address: fixture.address,
     attemptTimeout: 3000,
@@ -33,11 +34,14 @@ const queryFixture = async () => {
   try {
     const program = Effect.gen(function* runGameDigQuery() {
       const gameDig = yield* GameDigService;
+
       return yield* gameDig.query(query);
     });
+
     const result = await runtime.runPromise(
       Effect.provideService(program, References.MinimumLogLevel, "None")
     );
+
     return { exchangeCount: fixture.exchangeCount(), query, result };
   } finally {
     await runtime.dispose();

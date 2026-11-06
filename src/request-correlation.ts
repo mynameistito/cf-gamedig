@@ -7,10 +7,12 @@ const MAX_CORRELATION_ID_LENGTH = 64;
 
 const UUIDV4_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 const UUIDV7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+
 const COMPACT_UUID_PATTERN = /^[0-9a-f]{32}$/iu;
-const RAY_ID_PATTERN = /^[0-9a-f]{16}(?:-[A-Za-z0-9]{3})?$/iu;
+const RAY_ID_PATTERN = /^[0-9a-f]{16}(?:-[a-z0-9]{3})?$/iu;
 
 const CORRELATION_ID_PATTERN = new RegExp(
   [
@@ -28,6 +30,9 @@ const isValidCorrelationId = (value: string): boolean =>
   value.length <= MAX_CORRELATION_ID_LENGTH &&
   CORRELATION_ID_PATTERN.test(value);
 
+/**
+ * Safe fields recorded when an HTTP request completes.
+ */
 export interface HttpCompletionMetadata {
   readonly cloudflareRay?: string;
   readonly elapsedMs: number;
@@ -37,19 +42,33 @@ export interface HttpCompletionMetadata {
   readonly status: number;
 }
 
+/**
+ * Correlation and timing fields returned in API responses.
+ */
 export interface ApiResponseMetadata {
   readonly elapsedMs: number;
   readonly requestId: string;
   readonly timestamp: string;
 }
 
+/**
+ * Create a new request identifier.
+ * @returns A random UUID.
+ */
 export const createRequestId = (): string => crypto.randomUUID();
 
+/**
+ * Build response timing and correlation metadata.
+ * @param requestId - Identifier for the request.
+ * @param startedAtMs - Request start time in milliseconds.
+ * @returns Metadata for the response body.
+ */
 export const makeResponseMetadata = (
   requestId: string,
   startedAtMs: number
 ): ApiResponseMetadata => {
   const now = Date.now();
+
   return {
     elapsedMs: Math.max(0, Math.trunc(now - startedAtMs)),
     requestId,
@@ -57,32 +76,54 @@ export const makeResponseMetadata = (
   };
 };
 
+/**
+ * Read a validated internal request identifier.
+ * @param request - Incoming request.
+ * @returns The identifier when valid, otherwise undefined.
+ */
 export const readInternalRequestId = (request: Request): string | undefined => {
   const value = request.headers.get(INTERNAL_REQUEST_ID_HEADER);
+
   return value !== null && isValidCorrelationId(value) ? value : undefined;
 };
 
+/**
+ * Read a validated Cloudflare request identifier, falling back to the ray ID.
+ * @param request - Incoming request.
+ * @returns The identifier when valid, otherwise undefined.
+ */
 export const readCloudflareRequestId = (
   request: Request
 ): string | undefined => {
   const requestId = request.headers.get(CLOUDFLARE_REQUEST_ID_HEADER);
+
   if (requestId !== null && isValidCorrelationId(requestId)) {
     return requestId;
   }
+
   const ray = request.headers.get(CLOUDFLARE_RAY_HEADER);
+
   return ray !== null && isValidCorrelationId(ray) ? ray : undefined;
 };
 
+/**
+ * Attach a request identifier to a response.
+ * @param response - Response to annotate.
+ * @param requestId - Identifier to attach.
+ * @returns The annotated response, copied if its headers are immutable.
+ */
 export const withRequestIdHeader = (
   response: Response,
   requestId: string
 ): Response => {
   try {
     response.headers.set(REQUEST_ID_HEADER, requestId);
+
     return response;
   } catch {
     const headers = new Headers(response.headers);
     headers.set(REQUEST_ID_HEADER, requestId);
+
     return new Response(response.body, {
       headers,
       status: response.status,
@@ -91,6 +132,14 @@ export const withRequestIdHeader = (
   }
 };
 
+/**
+ * Collect safe fields for an HTTP completion log.
+ * @param request - Completed request.
+ * @param response - Response sent to the caller.
+ * @param elapsedMs - Duration in milliseconds.
+ * @param requestId - Optional correlation identifier.
+ * @returns Completion metadata.
+ */
 export const makeHttpCompletionMetadata = (
   request: Request,
   response: Response,

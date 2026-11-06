@@ -1,9 +1,10 @@
 export const QUAKE3_FIXTURE_PORT = 27_960;
 
-const EXPECTED_QUERY = Buffer.from(
-  "\u00FF\u00FF\u00FF\u00FFgetstatus\u0000",
-  "latin1"
-);
+const encodeLatin1 = (value: string): Uint8Array =>
+  Uint8Array.from(value, (character) => character.codePointAt(0) ?? 0);
+
+const EXPECTED_QUERY = encodeLatin1("\u00FF\u00FF\u00FF\u00FFgetstatus\u0000");
+
 const SERVER_INFO = [
   "\\sv_hostname\\^1CF GameDig E2E",
   "\\mapname\\q3dm17",
@@ -12,15 +13,15 @@ const SERVER_INFO = [
   "\\g_needpass\\0",
   "\\version\\ioquake3 1.36",
 ].join("");
-const STATUS_RESPONSE = Buffer.from(
+
+const STATUS_RESPONSE = encodeLatin1(
   [
     "\u00FF\u00FF\u00FF\u00FFstatusResponse",
     SERVER_INFO,
     '7 42 "^2Alice"',
     '0 0 "^3Fixture Bot"',
     "",
-  ].join("\n"),
-  "latin1"
+  ].join("\n")
 );
 
 const packetEquals = (left: Uint8Array, right: Uint8Array): boolean =>
@@ -30,6 +31,9 @@ const packetEquals = (left: Uint8Array, right: Uint8Array): boolean =>
 const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 
+/**
+ * Running UDP fixture and its lifecycle controls.
+ */
 export interface Quake3Fixture {
   readonly address: string;
   readonly close: () => void;
@@ -44,11 +48,17 @@ interface Quake3FixtureOptions {
   readonly port?: number;
 }
 
+/**
+ * Start a local Quake 3 UDP server fixture.
+ * @param options - Bind address and packet callbacks.
+ * @returns The running fixture and its controls.
+ */
 export const startQuake3Fixture = async (
   options: Quake3FixtureOptions = {}
 ): Promise<Quake3Fixture> => {
   let exchanges = 0;
   const address = options.host ?? "127.0.0.1";
+
   const socket = await Bun.udpSocket({
     hostname: address,
     port: options.port ?? 0,
@@ -56,6 +66,7 @@ export const startQuake3Fixture = async (
       data(server, message, remotePort, remoteAddress) {
         if (!packetEquals(message, EXPECTED_QUERY)) {
           options.onUnexpectedPacket?.(toHex(message));
+
           return;
         }
 
@@ -68,7 +79,9 @@ export const startQuake3Fixture = async (
 
   return {
     address,
-    close: () => socket.close(),
+    close: () => {
+      socket.close();
+    },
     exchangeCount: () => exchanges,
     port: socket.port,
   };

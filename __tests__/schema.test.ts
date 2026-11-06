@@ -57,6 +57,10 @@ const emptyResult: GameDigResult = {
   version: "",
 };
 
+const decodePassword = (password: string): boolean =>
+  Schema.decodeUnknownSync(GameDigResultSchema)({ ...baseResult, password })
+    .password;
+
 describe("GameDig boundary schemas", () => {
   test("accepts a normal generic GameDig result with players and bots", () => {
     const decoded = Schema.decodeUnknownSync(GameDigResultSchema)({
@@ -76,6 +80,7 @@ describe("GameDig boundary schemas", () => {
       queryPort: 27_015,
       raw: valveRaw,
     });
+
     expect(decoded.name).toBe("cf-gamedig Test");
     expect(decoded.password).toBe(true);
     expect(decoded.players).toHaveLength(2);
@@ -101,6 +106,7 @@ describe("GameDig boundary schemas", () => {
       maxplayers: "32",
       numplayers: "3",
     });
+
     expect(decoded.numplayers).toBe(3);
     expect(decoded.maxplayers).toBe(32);
   });
@@ -112,6 +118,7 @@ describe("GameDig boundary schemas", () => {
       numplayers: "4",
       password: "1",
     });
+
     expect(decoded.numplayers).toBe(4);
     expect(decoded.maxplayers).toBe(16);
     expect(decoded.password).toBe(true);
@@ -122,16 +129,11 @@ describe("GameDig boundary schemas", () => {
       ...baseResult,
       password: "false",
     });
+
     expect(decoded.password).toBe(false);
   });
 
   test("mirrors GameDig trueTest semantics for string passwords", () => {
-    const decodePassword = (password: string): boolean =>
-      Schema.decodeUnknownSync(GameDigResultSchema)({
-        ...baseResult,
-        password,
-      }).password;
-
     expect(decodePassword("true")).toBe(true);
     expect(decodePassword("TRUE")).toBe(true);
     expect(decodePassword("yes")).toBe(true);
@@ -150,6 +152,7 @@ describe("GameDig boundary schemas", () => {
       bots: [{ name: "bot" }],
       players: [{ name: "x" }],
     });
+
     expect(decoded.players).toEqual([{ name: "x", raw: {} }]);
     expect(decoded.bots).toEqual([{ name: "bot", raw: {} }]);
   });
@@ -166,6 +169,7 @@ describe("GameDig boundary schemas", () => {
       raw: valveRaw,
       version: "1.38.6",
     });
+
     expect(decoded.raw.appId).toBe(730);
     expect(decoded.raw.tags).toEqual(["empty", "secure"]);
     expect(decoded.players[0]?.raw).toEqual({ score: 3, time: 900 });
@@ -181,6 +185,7 @@ describe("GameDig boundary schemas", () => {
       raw: minecraftRaw,
       version: "1.21",
     });
+
     expect(decoded.raw.gamemode).toBe("survival");
     expect(decoded.raw.plugins).toEqual([{ name: "spigot", version: "1.8" }]);
   });
@@ -193,6 +198,7 @@ describe("GameDig boundary schemas", () => {
         nested: { deep: { deeper: { value: "x" } } },
       },
     });
+
     expect(decoded.raw.list).toEqual([
       1,
       "two",

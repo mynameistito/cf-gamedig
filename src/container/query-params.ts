@@ -19,12 +19,16 @@ const PORT_ERROR = "Invalid port: expected an integer between 1 and 65535";
 const RETRY_ERROR = `Invalid maxRetries: expected an integer between 0 and ${MAX_RETRIES}`;
 const SOCKET_TIMEOUT_ERROR = `Invalid socketTimeout: expected an integer between 1 and ${MAX_SOCKET_TIMEOUT_MS}`;
 const ATTEMPT_TIMEOUT_ERROR = `Invalid attemptTimeout: expected an integer between 1 and ${MAX_ATTEMPT_TIMEOUT_MS}`;
+
 const TEAMSPEAK_QUERY_PORT_ERROR =
   "Invalid teamspeakQueryPort: expected an integer between 1 and 65535";
+
 const TELNET_PORT_ERROR =
   "Invalid telnetPort: expected an integer between 1 and 65535";
+
 const TIMEOUT_RELATIONSHIP_ERROR =
   "Invalid timeouts: attemptTimeout must be greater than socketTimeout";
+
 const taggedError = Schema.TaggedError;
 
 export const SENSITIVE_QUERY_OPTIONS = [
@@ -59,22 +63,26 @@ const hostString = boundedRequiredString(
   MAX_HOST_LENGTH,
   `Invalid host: expected at most ${MAX_HOST_LENGTH} characters`
 );
+
 const addressString = boundedRequiredString(
   "Invalid address: expected a non-empty string",
   MAX_ADDRESS_LENGTH,
   `Invalid address: expected at most ${MAX_ADDRESS_LENGTH} characters`
 );
+
 const typeString = boundedRequiredString(
   "Missing required parameter: type",
   MAX_TYPE_LENGTH,
   `Invalid type: expected at most ${MAX_TYPE_LENGTH} characters`
 );
+
 const protocolString = (name: string) =>
   boundedRequiredString(
     `Invalid ${name}: expected a non-empty string`,
     MAX_PROTOCOL_STRING_LENGTH,
     `Invalid ${name}: expected at most ${MAX_PROTOCOL_STRING_LENGTH} characters`
   );
+
 const credentialString = (name: string) =>
   boundedRequiredString(
     `Invalid ${name}: expected a non-empty string`,
@@ -96,9 +104,11 @@ const decodeIpFamily = (value: "0" | "4" | "6") => {
   if (value === "0") {
     return 0;
   }
+
   if (value === "4") {
     return 4;
   }
+
   return 6;
 };
 
@@ -106,9 +116,11 @@ const encodeIpFamily = (value: 0 | 4 | 6) => {
   if (value === 0) {
     return "0";
   }
+
   if (value === 4) {
     return "4";
   }
+
   return "6";
 };
 
@@ -139,42 +151,53 @@ const boundedInteger = (minimum: number, maximum: number, message: string) =>
   );
 
 const MaxRetriesSchema = boundedIntegerFromString(0, MAX_RETRIES, RETRY_ERROR);
+
 const SocketTimeoutSchema = boundedIntegerFromString(
   1,
   MAX_SOCKET_TIMEOUT_MS,
   SOCKET_TIMEOUT_ERROR
 );
+
 const AttemptTimeoutSchema = boundedIntegerFromString(
   1,
   MAX_ATTEMPT_TIMEOUT_MS,
   ATTEMPT_TIMEOUT_ERROR
 );
+
 const PortSchema = boundedIntegerFromString(1, 65_535, PORT_ERROR);
+
 const TeamspeakQueryPortSchema = boundedIntegerFromString(
   1,
   65_535,
   TEAMSPEAK_QUERY_PORT_ERROR
 );
+
 const TelnetPortSchema = boundedIntegerFromString(1, 65_535, TELNET_PORT_ERROR);
 
 const PostMaxRetriesSchema = boundedInteger(0, MAX_RETRIES, RETRY_ERROR);
+
 const PostSocketTimeoutSchema = boundedInteger(
   1,
   MAX_SOCKET_TIMEOUT_MS,
   SOCKET_TIMEOUT_ERROR
 );
+
 const PostAttemptTimeoutSchema = boundedInteger(
   1,
   MAX_ATTEMPT_TIMEOUT_MS,
   ATTEMPT_TIMEOUT_ERROR
 );
+
 const PostPortSchema = boundedInteger(1, 65_535, PORT_ERROR);
+
 const PostTeamspeakQueryPortSchema = boundedInteger(
   1,
   65_535,
   TEAMSPEAK_QUERY_PORT_ERROR
 );
+
 const PostTelnetPortSchema = boundedInteger(1, 65_535, TELNET_PORT_ERROR);
+
 const SnapshotIntervalSchema = Schema.Literals([
   "1h",
   "6h",
@@ -258,8 +281,19 @@ export const PostQueryRequestSchema = Schema.Struct({
   type: typeString,
 });
 
+/**
+ * Normalized options for a GameDig query.
+ */
 export type QueryParams = typeof QueryParamsSchema.Type;
+
+/**
+ * Decoded POST query request.
+ */
 export type PostQueryRequest = typeof PostQueryRequestSchema.Type;
+
+/**
+ * Query options with credentials removed.
+ */
 export type PublicQueryParams = Omit<
   QueryParams,
   "apiKey" | "password" | "telnetPassword" | "token"
@@ -279,6 +313,7 @@ const addOptionalQueryParam = (
   name: string
 ): void => {
   const value = searchParams.get(name)?.trim();
+
   if (value !== undefined) {
     values[name] = value;
   }
@@ -288,7 +323,9 @@ const firstMessageLine = (message: string | undefined): string => {
   if (message === undefined) {
     return "Invalid query";
   }
+
   const lineEnd = message.indexOf("\n");
+
   return lineEnd === -1 ? message : message.slice(0, lineEnd);
 };
 
@@ -299,6 +336,11 @@ const checkTimeoutRelationship = (
     ? Result.fail(invalidQuery(TIMEOUT_RELATIONSHIP_ERROR))
     : Result.succeed(query);
 
+/**
+ * Find a sensitive option supplied in a URL query.
+ * @param searchParams - URL query parameters.
+ * @returns The first sensitive option, if present.
+ */
 export const findSensitiveQueryParameter = (
   searchParams: URLSearchParams
 ): (typeof SENSITIVE_QUERY_OPTIONS)[number] | undefined => {
@@ -307,9 +349,15 @@ export const findSensitiveQueryParameter = (
       return name;
     }
   }
+
   return undefined;
 };
 
+/**
+ * Parse and validate URL query parameters.
+ * @param searchParams - URL query parameters.
+ * @returns Normalized options or an invalid-query error.
+ */
 export const parseQueryParams = (
   searchParams: URLSearchParams
 ): Result.Result<QueryParams, InvalidQueryError> => {
@@ -377,10 +425,16 @@ export const parseQueryParams = (
   );
 };
 
+/**
+ * Normalize a decoded POST query.
+ * @param request - Decoded POST request.
+ * @returns Normalized options or an invalid-query error.
+ */
 export const parsePostQuery = (
   request: PostQueryRequest
 ): Result.Result<QueryParams, InvalidQueryError> => {
   const options = request.options ?? {};
+
   const queryWithoutPort: QueryParams = {
     attemptTimeout: options.attemptTimeout ?? DEFAULT_ATTEMPT_TIMEOUT_MS,
     checkOldIDs: options.checkOldIDs ?? false,
@@ -399,6 +453,7 @@ export const parsePostQuery = (
     type: request.type,
     ...options,
   };
+
   const query =
     request.port === undefined
       ? queryWithoutPort
@@ -407,6 +462,11 @@ export const parsePostQuery = (
   return checkTimeoutRelationship(query);
 };
 
+/**
+ * Remove credentials from query options.
+ * @param query - Query options, including optional credentials.
+ * @returns Public query options.
+ */
 export const toPublicQueryParams = ({
   apiKey: _apiKey,
   password: _password,
