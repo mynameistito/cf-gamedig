@@ -16,29 +16,33 @@
     "knip": "knip"
   },
   "dependencies": {
-    "effect": "4.1.2",
+    "effect": "4.0.7",
     "gamedig": "5.3.3"
   },
   "devDependencies": {
-    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@alchemy.run/cloudflare": "2.0.0-beta.84",
     "@cloudflare/containers": "0.3.7",
-    "@cloudflare/workers-types": "5.20261103.1",
-    "@effect/platform-bun": "4.1.2",
-    "@effect/platform-node": "4.1.2",
+    "@cloudflare/workers-types": "5.20261030.1",
+    "@effect/platform-bun": "4.0.7",
+    "@effect/platform-node": "4.0.7",
     "@types/bun": "1.4.4",
     "@types/gamedig": "5.0.3",
     "@types/node": "26.6.6",
-    "alchemy": "2.0.0-beta.85",
+    "alchemy": "2.0.0-beta.84",
     "eslint-plugin-github": "6.1.2",
     "eslint-plugin-jsdoc": "^65.4.2",
     "eslint-plugin-sonarjs": "^4.2.2",
     "eslint-plugin-tsdoc": "^0.5.4",
-    "knip": "6.44.1",
+    "knip": "6.44.0",
     "oxfmt": "^0.75.0",
     "oxlint": "^1.90.0",
     "oxlint-tsgolint": "^7.0.2005",
     "tsrs": "0.20.1-ts7.1.0-beta",
     "typescript": "6.0.3",
-    "ultracite": "8.1.1"
+    "ultracite": "8.1.0"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.7",
+    "@effect/sql-d1": "4.0.7"
   }
 }

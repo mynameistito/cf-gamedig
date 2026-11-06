@@ -649,6 +649,8 @@ bun install
 
 TypeScript 6 remains a development dependency because the GitHub and SonarJS lint plugins depend on its JavaScript compiler API. The project typecheck uses tsrs independently.
 
+Alchemy 2.0.0-beta.84 requires APIs removed in Effect 4.1. The Effect packages and their shared platform and D1 dependencies are aligned to 4.0.7 until Alchemy can be upgraded under the release-age policy.
+
 ### Local development
 
 With dependencies and a Docker-compatible engine available:
